@@ -1,0 +1,28 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
+frontend/dist/
+simulation/build/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Hardhat
+contracts/deployments/

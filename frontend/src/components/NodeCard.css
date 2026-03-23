@@ -1,0 +1,128 @@
+/* NodeCard.css */
+
+.node-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+  animation: fadeInUp 0.5s ease-out forwards;
+}
+
+.node-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  border-radius: var(--radius-md) var(--radius-md) 0 0;
+}
+
+.node-card-1::before { background: var(--node-1); }
+.node-card-2::before { background: var(--node-2); }
+.node-card-3::before { background: var(--node-3); }
+.node-card-4::before { background: var(--node-4); }
+
+.node-card:hover {
+  transform: translateY(-3px);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.3);
+  background: var(--bg-card-hover);
+}
+
+.node-card-1:hover { box-shadow: 0 12px 40px var(--node-1-glow); }
+.node-card-2:hover { box-shadow: 0 12px 40px var(--node-2-glow); }
+.node-card-3:hover { box-shadow: 0 12px 40px var(--node-3-glow); }
+.node-card-4:hover { box-shadow: 0 12px 40px var(--node-4-glow); }
+
+.node-card-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.node-card-icon {
+  font-size: 2rem;
+}
+
+.node-card-info {
+  flex: 1;
+}
+
+.node-card-name {
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.node-card-type {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+.node-status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: all 0.3s;
+}
+
+.node-status-dot.online {
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan-glow);
+  animation: pulse-glow 1.5s ease-in-out infinite;
+}
+
+.node-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.node-metric {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.metric-label {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.metric-value {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+
+.metric-value.mono {
+  font-family: var(--font-mono);
+}
+
+.metric-value.status.online {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.node-metric.highlight {
+  margin-top: 6px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.metric-value.delta.pos {
+  color: var(--accent-cyan);
+  font-weight: 600;
+}
+
+.metric-value.delta.neg {
+  color: var(--accent-red);
+  font-weight: 600;
+}
