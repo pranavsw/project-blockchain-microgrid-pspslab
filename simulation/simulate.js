@@ -23,7 +23,7 @@ const { ethers } = require("ethers");
 const NOMINAL_FREQ         = 50.0;    // Hz
 const NOMINAL_FREQ_MILLI   = 50000;   // milli-Hz (for contract)
 const NODE_COUNT           = 4;
-const CONSENSUS_DELAY_SEC  = 15;      // Simulated mining delay (real: ~50μs)
+const CONSENSUS_DELAY_SEC  = 5;       // Simulated mining delay (real: ~50μs)
 const TOTAL_ROUNDS         = 5;
 const RPC_URL              = "http://127.0.0.1:8545";
 

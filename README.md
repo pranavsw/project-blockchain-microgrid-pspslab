@@ -81,7 +81,7 @@ node simulate.js 0x5FbDB2315678afecb367f032d93F642f64180aa3 --attack --attack-no
 ## 📖 How It Works
 
 1. **4 nodes** (Solar, Wind, Battery, Diesel) generate frequency deviations (Δf)
-2. A **15-second delay** simulates block mining + network latency (real-world: ~50μs)
+2. A **5-second delay** simulates block mining + network latency (real-world: ~500μs)
 3. Each node submits its Δf to the **FrequencyConsensus** smart contract
 4. Once all 4 nodes report, the contract calculates **global frequency** via SCPM
 5. The result is locked **immutably** on-chain with a cryptographic hash
