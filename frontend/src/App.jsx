@@ -1,6 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════════════
    App.jsx — Main Dashboard Application
-   Connects to local Hardhat node and orchestrates all components
+   Aligned with Dai et al. (2024) — PBFT, FDIA Detection, Trimmer
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect } from 'react';
@@ -9,6 +9,7 @@ import { CONTRACT_ADDRESS, FREQUENCY_CONSENSUS_ABI } from './contractConfig';
 import TransactionLifecycle from './components/TransactionLifecycle';
 import FrequencyChart from './components/FrequencyChart';
 import NodeCard from './components/NodeCard';
+import AttackPanel from './components/AttackPanel';
 import './App.css';
 
 function App() {
@@ -16,11 +17,15 @@ function App() {
   const [contract, setContract] = useState(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
+  const [fdiaActive, setFdiaActive] = useState(false);
+  const [trimmerActive, setTrimmerActive] = useState(false);
   const [contractInfo, setContractInfo] = useState({
     address: CONTRACT_ADDRESS,
     round: '—',
     nodeCount: '—',
     nominal: '50.000 Hz',
+    leadNode: '—',
+    fdiaDetections: 0,
   });
 
   // Connect to local Hardhat node
@@ -28,13 +33,21 @@ function App() {
     const connect = async () => {
       try {
         const prov = new ethers.JsonRpcProvider('http://127.0.0.1:8545');
-        const network = await prov.getNetwork();
+        await prov.getNetwork();
 
         const ct = new ethers.Contract(CONTRACT_ADDRESS, FREQUENCY_CONSENSUS_ABI, prov);
-
-        // Verify contract is deployed
         const nodeCount = await ct.getNodeCount();
         const currentRound = await ct.getCurrentRound();
+
+        let leadNodeId = '—';
+        if (Number(currentRound) > 1) {
+          try {
+            const result = await ct.getResult(Number(currentRound) - 1);
+            leadNodeId = String(result.leadNodeId);
+            setFdiaActive(Number(result.fdiaDetections) > 0);
+            setTrimmerActive(result.trimmerUsed);
+          } catch (e) { /* first round */ }
+        }
 
         setProvider(prov);
         setContract(ct);
@@ -44,30 +57,48 @@ function App() {
           ...prev,
           round: String(currentRound),
           nodeCount: String(nodeCount),
-          chainId: String(network.chainId),
+          leadNode: leadNodeId,
         }));
       } catch (err) {
-        console.error('Connection failed:', err);
         setError('Cannot connect to Hardhat node at localhost:8545. Is it running?');
         setConnected(false);
       }
     };
 
     connect();
-    const interval = setInterval(connect, 10000);
+    const interval = setInterval(connect, 8000);
     return () => clearInterval(interval);
   }, []);
 
-  // Poll for round updates
+  // Listen for FDIA and Trimmer events
   useEffect(() => {
     if (!contract) return;
-    const interval = setInterval(async () => {
-      try {
-        const round = await contract.getCurrentRound();
-        setContractInfo(prev => ({ ...prev, round: String(round) }));
-      } catch (e) { /* ignore */ }
-    }, 5000);
-    return () => clearInterval(interval);
+
+    const onFDIA = (round, nodeId) => {
+      setFdiaActive(true);
+    };
+
+    const onTrimmer = (round, scalingFactor) => {
+      setTrimmerActive(true);
+    };
+
+    const onVerified = (round, globalFreq, controlSig, leadNodeId) => {
+      setContractInfo(prev => ({
+        ...prev,
+        round: String(Number(round) + 1),
+        leadNode: String(leadNodeId),
+      }));
+    };
+
+    contract.on('FDIADetected', onFDIA);
+    contract.on('TrimmerActivated', onTrimmer);
+    contract.on('BlockVerified', onVerified);
+
+    return () => {
+      contract.off('FDIADetected', onFDIA);
+      contract.off('TrimmerActivated', onTrimmer);
+      contract.off('BlockVerified', onVerified);
+    };
   }, [contract]);
 
   return (
@@ -80,7 +111,7 @@ function App() {
             <div className="logo-text">
               <h1 className="app-title">Microgrid Frequency Control</h1>
               <p className="app-subtitle">
-                Decentralized Secondary Control via Blockchain Consensus
+                Blockchain-Enabled Cyber-Resilience — Dai et al. (2024)
               </p>
             </div>
           </div>
@@ -90,9 +121,14 @@ function App() {
             <span className="conn-dot" />
             {connected ? 'Connected' : 'Disconnected'}
           </div>
-          {connected && (
-            <div className="chain-badge">
-              Chain #{contractInfo.chainId}
+          {fdiaActive && (
+            <div className="connection-badge fdia-badge">
+              🚨 FDIA Detected
+            </div>
+          )}
+          {trimmerActive && (
+            <div className="connection-badge trimmer-badge">
+              🛡️ Trimmer Active
             </div>
           )}
         </div>
@@ -106,7 +142,7 @@ function App() {
             <strong>Connection Error</strong>
             <p>{error}</p>
             <p className="error-hint">
-              Run <code>npx hardhat node</code> in the <code>/contracts</code> directory,
+              Run <code>npx hardhat node</code> in <code>/contracts</code>,
               then <code>npx hardhat run scripts/deploy.js --network localhost</code>
             </p>
           </div>
@@ -122,20 +158,24 @@ function App() {
           </span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Current Round</span>
+          <span className="stat-label">Round</span>
           <span className="stat-value accent">{contractInfo.round}</span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Registered Nodes</span>
+          <span className="stat-label">DG Nodes</span>
           <span className="stat-value accent">{contractInfo.nodeCount}</span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Nominal Freq</span>
-          <span className="stat-value">{contractInfo.nominal}</span>
+          <span className="stat-label">Lead Node</span>
+          <span className="stat-value accent">👑 #{contractInfo.leadNode}</span>
         </div>
         <div className="stat-item">
           <span className="stat-label">Consensus</span>
-          <span className="stat-value">SCPM</span>
+          <span className="stat-value">PBFT</span>
+        </div>
+        <div className="stat-item">
+          <span className="stat-label">Defense</span>
+          <span className="stat-value">SC² Trimmer</span>
         </div>
       </div>
 
@@ -144,13 +184,18 @@ function App() {
         {/* Node Cards Row */}
         <section className="section-nodes">
           <h2 className="section-title">
-            <span>🔌</span> Microgrid Nodes
+            <span>🔌</span> DG Nodes (Ring Topology: 1↔2↔3↔4↔1)
           </h2>
           <div className="nodes-grid">
             {[1, 2, 3, 4].map(nodeId => (
               <NodeCard key={nodeId} nodeId={nodeId} contract={contract} />
             ))}
           </div>
+        </section>
+
+        {/* Attack Panel */}
+        <section className="section-attack">
+          <AttackPanel contract={contract} provider={provider} />
         </section>
 
         {/* Transaction Lifecycle */}
@@ -167,12 +212,11 @@ function App() {
       {/* ── Footer ─────────────────────────────────────────────── */}
       <footer className="app-footer">
         <p>
-          Decentralized Microgrid Frequency Control Demo —
-          Smart Contract Participation Matrix (SCPM) &
-          Delay-Tolerant Consensus
+          Blockchain-Enabled Cyber-Resilience Enhancement Framework —
+          Dai et al., IEEE Trans. Smart Grid, Vol.15, No.2, 2024
         </p>
         <p className="footer-tech">
-          Solidity • Hardhat • ethers.js • React • C++ Simulation
+          Solidity • Hardhat • PBFT • ethers.js • React • FDIA Detection • SC² Trimmer
         </p>
       </footer>
     </div>

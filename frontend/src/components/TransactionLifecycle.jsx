@@ -1,7 +1,8 @@
 /* ═══════════════════════════════════════════════════════════════════════
    TransactionLifecycle.jsx — Pipeline Visualizer Component
    Shows live state transitions for each node's blockchain submission:
-   1. Encoding Data → 2. Sending to Blockchain → 3. Block Verified
+   1. Encoding Data → 2. Sending to Blockchain → 3. PBFT Verified
+   Includes Lead Node badge and FDIA warning indicators.
    ═══════════════════════════════════════════════════════════════════════ */
 
 import { useState, useEffect, useRef } from 'react';
@@ -16,19 +17,20 @@ const NODE_LABELS = {
 
 const STAGES = [
   { key: 'encoding', label: 'Encoding Data', icon: '🔐' },
-  { key: 'sending',  label: 'Sending to Blockchain', icon: '📡' },
-  { key: 'verified', label: 'Block Verified', icon: '✅' },
+  { key: 'sending',  label: 'Sending to Chain', icon: '📡' },
+  { key: 'verified', label: 'PBFT Verified', icon: '✅' },
 ];
 
 export default function TransactionLifecycle({ contract }) {
   const [nodeStates, setNodeStates] = useState(() => {
     const init = {};
     [1, 2, 3, 4].forEach(id => {
-      init[id] = { stage: 'idle', deltaF: null, txHash: null, blockNumber: null, globalFreq: null, round: null };
+      init[id] = { stage: 'idle', deltaF: null, txHash: null, blockNumber: null, globalFreq: null, round: null, fdiaFlag: false };
     });
     return init;
   });
   const [currentRound, setCurrentRound] = useState(null);
+  const [leadNodeId, setLeadNodeId] = useState(null);
 
   // Poll current round
   useEffect(() => {
@@ -52,12 +54,12 @@ export default function TransactionLifecycle({ contract }) {
   useEffect(() => {
     if (!contract) return;
 
-    const onSubmitted = (round, nodeId, deltaF) => {
+    // FrequencySubmitted(round, nodeId, frequency, activePower, deltaF, timestamp)
+    const onSubmitted = (round, nodeId, frequency, activePower, deltaF) => {
       const nid = Number(nodeId);
       const df = Number(deltaF) / 1000;
       const rid = Number(round);
 
-      // First show encoding, then transition to sending
       setNodeStates(prev => ({
         ...prev,
         [nid]: {
@@ -65,6 +67,7 @@ export default function TransactionLifecycle({ contract }) {
           round: rid,
           stage: 'encoding',
           deltaF: df,
+          fdiaFlag: false,
           timestamp: Date.now(),
         }
       }));
@@ -77,9 +80,25 @@ export default function TransactionLifecycle({ contract }) {
       }, 800);
     };
 
-    const onVerified = (round, globalFreq, nodeIds, txHash) => {
+    // FDIADetected(round, nodeId, deviation, threshold)
+    const onFDIA = (round, nodeId) => {
+      const nid = Number(nodeId);
+      setNodeStates(prev => ({
+        ...prev,
+        [nid]: { ...prev[nid], fdiaFlag: true }
+      }));
+    };
+
+    // LeadNodeElected(round, nodeId)
+    const onLeader = (round, nodeId) => {
+      setLeadNodeId(Number(nodeId));
+    };
+
+    // BlockVerified(round, globalFreq, controlSignal, leadNodeId, nodeIds, txHash)
+    const onVerified = (round, globalFreq, controlSignal, leader, nodeIds, txHash) => {
       const rid = Number(round);
       const gf = Number(globalFreq) / 1000;
+      setLeadNodeId(Number(leader));
 
       for (let i = 0; i < nodeIds.length; i++) {
         const id = Number(nodeIds[i]);
@@ -98,10 +117,14 @@ export default function TransactionLifecycle({ contract }) {
     };
 
     contract.on('FrequencySubmitted', onSubmitted);
+    contract.on('FDIADetected', onFDIA);
+    contract.on('LeadNodeElected', onLeader);
     contract.on('BlockVerified', onVerified);
 
     return () => {
       contract.off('FrequencySubmitted', onSubmitted);
+      contract.off('FDIADetected', onFDIA);
+      contract.off('LeadNodeElected', onLeader);
       contract.off('BlockVerified', onVerified);
     };
   }, [contract]);
@@ -130,6 +153,8 @@ export default function TransactionLifecycle({ contract }) {
                 <span className="node-icon">{nodeInfo.icon}</span>
                 <span className="node-label">Node {nodeId}</span>
                 <span className="node-name">{nodeInfo.name}</span>
+                {leadNodeId === nodeId && <span className="lead-badge">👑 Lead</span>}
+                {state.fdiaFlag && <span className="fdia-badge-small">🚨 FDIA</span>}
               </div>
 
               {state.deltaF !== null && (

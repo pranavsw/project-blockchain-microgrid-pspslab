@@ -253,3 +253,29 @@
 .stage-label {
   font-size: 0.7rem;
 }
+
+/* Lead Node Badge */
+.lead-badge {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(250, 204, 21, 0.15);
+  color: #fbbf24;
+  border: 1px solid rgba(250, 204, 21, 0.3);
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* FDIA Warning Badge */
+.fdia-badge-small {
+  font-size: 0.65rem;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 10px;
+  background: rgba(239, 68, 68, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  animation: pulse-glow 1s ease-in-out infinite;
+  white-space: nowrap;
+}
