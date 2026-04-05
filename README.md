@@ -62,6 +62,22 @@ cd simulation
 node simulate.js 0x5FbDB2315678afecb367f032d93F642f64180aa3
 ```
 
+### 3. Simulating Cyber Attacks (FDIA)
+
+You can simulate False Data Injection Attacks (FDIA) by passing the `--attack` flag to the simulation script.
+
+**Terminal 4** (Attack Mode):
+```bash
+cd simulation
+node simulate.js 0x5FbDB2315678afecb367f032d93F642f64180aa3 --attack --attack-node 2
+```
+
+**Attack Options:**
+- `--attack`: Enables FDIA injection.
+- `--attack-node <N>`: Which node to compromise (1-4, default: 2).
+- `--attack-type <1|2>`: Type 1 modifies payload only, Type 2 simulates payload + identity spoof (default: 1).
+- `--attack-magnitude <N>`: Fake frequency deviation in milli-Hz (default: 500).
+
 ## 📖 How It Works
 
 1. **4 nodes** (Solar, Wind, Battery, Diesel) generate frequency deviations (Δf)
