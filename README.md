@@ -15,6 +15,8 @@ blockchain-microgrid/
 
 - **Node.js** v18+ ([download](https://nodejs.org/))
 - **npm** (comes with Node.js)
+- **Python 3** (required for OpenDSS simulation)
+- **OpenDSSDirect.py** (install via `pip install OpenDSSDirect.py`)
 
 ## 🚀 Setup
 
@@ -25,9 +27,10 @@ blockchain-microgrid/
 cd contracts
 npm install
 
-# Simulation layer
+# Simulation layer (Node + Python OpenDSS)
 cd ../simulation
 npm install
+pip install OpenDSSDirect.py
 
 # Frontend layer
 cd ../frontend

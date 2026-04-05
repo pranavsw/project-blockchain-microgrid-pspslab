@@ -1,0 +1,31 @@
+clear
+new circuit.Microgrid basekv=4.16 pu=1.0001 phases=3 bus1=SourceBus
+
+! Define a standard line code
+New linecode.mtx nphases=3 r1=0.058 x1=0.120 r0=0.178 x0=0.347 units=kft
+
+! Define nodes and lines for our 4-DG Microgrid
+New Line.L1 Phases=3 Bus1=SourceBus Bus2=Bus1 Length=2 units=kft LineCode=mtx
+New Line.L2 Phases=3 Bus1=Bus1 Bus2=Bus2 Length=2.5 units=kft LineCode=mtx
+New Line.L3 Phases=3 Bus1=Bus2 Bus2=Bus3 Length=1 units=kft LineCode=mtx
+New Line.L4 Phases=3 Bus1=Bus3 Bus2=Bus4 Length=1.5 units=kft LineCode=mtx
+
+! Base loads on each bus that will fluctuate during simulation
+New Load.Load1 Bus1=Bus1 Phases=3 kV=4.16 kW=50 kvar=10 model=1
+New Load.Load2 Bus1=Bus2 Phases=3 kV=4.16 kW=80 kvar=20 model=1
+New Load.Load3 Bus1=Bus3 Phases=3 kV=4.16 kW=40 kvar=15 model=1
+New Load.Load4 Bus1=Bus4 Phases=3 kV=4.16 kW=30 kvar=5 model=1
+
+! Define the Generators (DGs) representing our 4 nodes
+! Node 1: Solar Prosumer
+New Generator.DG1 Bus1=Bus1 Phases=3 kV=4.16 kW=100 pf=1.0 model=1
+! Node 2: Wind Generator
+New Generator.DG2 Bus1=Bus2 Phases=3 kV=4.16 kW=200 pf=0.95 model=1
+! Node 3: Battery Storage
+New Generator.DG3 Bus1=Bus3 Phases=3 kV=4.16 kW=150 pf=1.0 model=1
+! Node 4: Diesel Backup
+New Generator.DG4 Bus1=Bus4 Phases=3 kV=4.16 kW=80 pf=0.9 model=1
+
+Set VoltageBases=[4.16]
+CalcVoltageBases
+Solve

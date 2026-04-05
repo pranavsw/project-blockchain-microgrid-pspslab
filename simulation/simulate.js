@@ -15,6 +15,7 @@
  */
 
 const { ethers } = require("ethers");
+const { execSync } = require("child_process");
 
 // ════════════════════════════════════════════════════════════════════════
 //  Configuration
@@ -98,29 +99,9 @@ function gaussianRandom(mean = 0, stdDev = 1) {
 }
 
 /**
- * Generate active power and frequency for a DG node using droop control.
- *
- * Primary droop: f_i = f* − k_pi × P_i
- * With load variation and noise for realism.
+ * Real data is now fetched using OpenDSS Direct via Python.
+ * The generateNodeData function has been replaced by the OpenDSS Engine.
  */
-function generateNodeData(node, timeStep) {
-  // Sinusoidal load variation + noise → power fluctuation
-  const loadChange = node.loadVariation * Math.sin(timeStep * 0.1 * node.id);
-  const noise = gaussianRandom(0, node.loadVariation * 0.3);
-  const activePower = node.basePower + loadChange + noise;
-
-  // Primary droop control: f_i = f* − k_p × P_i
-  // Then add swing-equation based deviation
-  const droopDeviation = -node.kp * activePower;
-  const swingNoise = gaussianRandom(0, 0.01); // Small additional fluctuation
-
-  let frequency = NOMINAL_FREQ + droopDeviation + swingNoise;
-
-  // Clamp to realistic range (49.0 – 51.0 Hz)
-  frequency = Math.max(49.0, Math.min(51.0, frequency));
-
-  return { frequency, activePower };
-}
 
 function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
 function signed(v, d = 4) { return (v >= 0 ? "+" : "") + v.toFixed(d); }
@@ -191,13 +172,27 @@ async function main() {
     const timeStep = round;
 
     // ── Phase 1: Generate measurements ──
-    console.log("\n  📊 DG Node Measurements (Primary Droop: f_i = f* − k_p × P_i)\n");
+    console.log("\n  📊 DG Node Measurements (OpenDSS Power Flow + Droop Control)\n");
 
     let sumFreq = 0;
     const measurements = [];
 
+    let openDssData = null;
+    try {
+      // Call the Python OpenDSS Engine to solve the real circuit
+      const output = execSync(`python opendss_engine.py --step ${timeStep}`, { encoding: "utf-8" });
+      openDssData = JSON.parse(output.trim());
+    } catch (e) {
+      console.error("\n❌ Failed to run OpenDSS Engine. Is Python and OpenDSSDirect.py installed?");
+      console.error("Try running: pip install OpenDSSDirect.py");
+      console.error(e.message);
+      process.exit(1);
+    }
+
     for (const node of nodes) {
-      let { frequency, activePower } = generateNodeData(node, timeStep);
+      const nodeData = openDssData.nodes.find(n => n.nodeId === node.id);
+      let frequency = nodeData.frequency;
+      let activePower = nodeData.activePower;
       let isAttacked = false;
 
       // ── FDIA Injection ──
