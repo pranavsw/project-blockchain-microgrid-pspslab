@@ -3,17 +3,14 @@ pragma solidity ^0.8.24;
 
 /**
  * @title FrequencyConsensus
- * @notice Blockchain-Enabled Cyber-Resilience Enhancement Framework for
- *         Microgrid Distributed Secondary Control Against False Data
- *         Injection Attacks (Dai et al., IEEE Trans. Smart Grid, 2024).
+ * @notice Blockchain-Enabled Distributed Secondary Frequency Control for
+ *         Microgrid (Dai et al., IEEE Trans. Smart Grid, 2024).
  *
  * Implements:
  *   - Smart Contract Participation Matrix (SCPM) with neighbor topology
  *   - PBFT-style Lead Node election (round-robin rotation)
  *   - Distributed secondary frequency control law:
  *         u_fi = Σ a_ij(f_j − f_i) + g_i(f* − f_i)
- *   - False Data Injection Attack (FDIA) detection via bias check
- *   - Self-Healing Trimmer (SC2) to scale malicious control signals
  *
  * All frequency values are int256 scaled ×1000 (milli-Hz):
  *   50 Hz  →  50000    |    Δf = −0.05 Hz  →  −50
@@ -28,8 +25,6 @@ contract FrequencyConsensus {
     // ════════════════════════════════════════════════════════════════
 
     int256 public constant NOMINAL_FREQ = 50000;     // 50.000 Hz in milli-Hz
-    int256 public constant FDIA_THRESHOLD = 300;      // 0.3 Hz — deviation flagged as suspicious
-    uint256 public constant PBFT_SUPERMAJORITY = 67;  // 2/3 = 67% for PBFT consensus
 
     // ════════════════════════════════════════════════════════════════
     //  State Variables
@@ -59,17 +54,12 @@ contract FrequencyConsensus {
         int256 activePower;     // P_i in milli-kW
         int256 deltaF;          // Δf = f_i - f* (computed)
         bool   submitted;
-        bool   flaggedFDIA;     // True if bias check flags this submission
     }
     mapping(uint256 => mapping(uint256 => NodeSubmission)) public submissions;
     mapping(uint256 => uint256) public submissionCount;
 
     // ── Lead Node (PBFT) ──────────────────────────────────────────
     mapping(uint256 => uint256) public leadNode;  // round → elected lead node
-
-    // ── FDIA Tracking ─────────────────────────────────────────────
-    mapping(uint256 => uint256) public fdiaCount;         // round → number of flagged nodes
-    mapping(uint256 => bool)    public trimmerActivated;   // round → was trimmer used
 
     // ── Consensus Results ─────────────────────────────────────────
     struct ConsensusResult {
@@ -79,16 +69,13 @@ contract FrequencyConsensus {
         int256  controlSignal;          // u_f: secondary control output
         uint256 nodeCount;
         uint256 leadNodeId;             // Which node was leader
-        uint256 fdiaDetections;         // Number of FDIA flags this round
-        bool    trimmerUsed;            // Was self-healing trimmer activated
-        int256  trimmerScaling;         // k_t scaling factor (×1000)
         uint256 timestamp;
         bytes32 dataHash;               // Keccak hash for immutability proof
     }
     mapping(uint256 => ConsensusResult) public results;
 
     // ════════════════════════════════════════════════════════════════
-    //  Events (aligned with paper's blockchain event model)
+    //  Events
     // ════════════════════════════════════════════════════════════════
 
     event NodeRegistered(uint256 indexed nodeId, uint256[] neighborIds);
@@ -103,19 +90,6 @@ contract FrequencyConsensus {
     );
 
     event LeadNodeElected(uint256 indexed round, uint256 indexed nodeId);
-
-    event FDIADetected(
-        uint256 indexed round,
-        uint256 indexed nodeId,
-        int256  deviation,
-        int256  threshold
-    );
-
-    event TrimmerActivated(
-        uint256 indexed round,
-        int256  scalingFactor,
-        uint256 affectedNodes
-    );
 
     event BlockVerified(
         uint256 indexed round,
@@ -200,22 +174,12 @@ contract FrequencyConsensus {
         // Compute Δf = f_i - f*
         int256 deltaF = _frequency - NOMINAL_FREQ;
 
-        // ── FDIA Bias Check ──
-        // Flag if |Δf| exceeds the safe threshold (paper's bias detection)
-        bool isFlagged = false;
-        if (deltaF > FDIA_THRESHOLD || deltaF < -FDIA_THRESHOLD) {
-            isFlagged = true;
-            fdiaCount[currentRound]++;
-            emit FDIADetected(currentRound, _nodeId, deltaF, FDIA_THRESHOLD);
-        }
-
         // Store submission
         submissions[currentRound][_nodeId] = NodeSubmission({
             frequency:   _frequency,
             activePower: _activePower,
             deltaF:      deltaF,
-            submitted:   true,
-            flaggedFDIA: isFlagged
+            submitted:   true
         });
         submissionCount[currentRound]++;
 
@@ -252,7 +216,7 @@ contract FrequencyConsensus {
     }
 
     // ════════════════════════════════════════════════════════════════
-    //  Consensus Calculation (Paper's Secondary Control Law + SC2)
+    //  Consensus Calculation (Paper's Secondary Control Law)
     // ════════════════════════════════════════════════════════════════
 
     /**
@@ -260,11 +224,6 @@ contract FrequencyConsensus {
      *
      *   For each node i:
      *     u_fi = Σ_{j ∈ N_i} a_ij(f_j − f_i) + g_i(f* − f_i)
-     *
-     *   If FDIA detected (>1/3 nodes flagged):
-     *     Activate Self-Healing Trimmer (SC2):
-     *     k_t = Σ(u_normal) / Σ(u_flagged)
-     *     Scale flagged signals by k_t
      *
      *   Global frequency = f* − avg(Δf) after corrections
      */
@@ -274,13 +233,10 @@ contract FrequencyConsensus {
 
         int256 totalDeltaF = 0;
         int256 totalControlSignal = 0;
-        int256 sumNormal = 0;
-        int256 sumFlagged = 0;
-        uint256 flaggedCount = fdiaCount[round];
 
         uint256[] memory nodeIds = new uint256[](nodeCount);
 
-        // ── Phase 1: Compute per-node control signals using neighbor consensus ──
+        // ── Compute per-node control signals using neighbor consensus ──
         for (uint256 i = 0; i < nodeCount; i++) {
             uint256 nid = registeredNodes[i];
             nodeIds[i] = nid;
@@ -304,50 +260,14 @@ contract FrequencyConsensus {
             int256 pinning = pinningGain[nid] * (NOMINAL_FREQ - fi) / 1000;
             int256 controlSignal = neighborSum + pinning;
 
-            // Track normal vs flagged signals for Trimmer
-            if (submissions[round][nid].flaggedFDIA) {
-                sumFlagged += _abs(controlSignal);
-            } else {
-                sumNormal += _abs(controlSignal);
-            }
-
             totalControlSignal += controlSignal;
         }
 
-        // ── Phase 2: Self-Healing Trimmer (SC2) ──
-        int256 trimmerScaling = 1000; // 1.0 (no scaling by default)
-        bool useTrimmer = false;
-
-        // Activate if any FDIA detected (paper: when malicious ratio threatens consensus)
-        if (flaggedCount > 0 && sumFlagged > 0) {
-            useTrimmer = true;
-
-            // k_t = sum_normal / sum_flagged (paper's Trimmer equation)
-            trimmerScaling = (sumNormal * 1000) / sumFlagged;
-
-            // Cap trimmer between 0.1 and 1.0
-            if (trimmerScaling > 1000) trimmerScaling = 1000;
-            if (trimmerScaling < 100) trimmerScaling = 100;
-
-            // Scale the total control signal: reduce impact of flagged nodes
-            // Recalculate: u_total = u_normal + u_flagged * k_t
-            totalControlSignal = sumNormal + (sumFlagged * trimmerScaling / 1000);
-
-            trimmerActivated[round] = true;
-
-            emit TrimmerActivated(round, trimmerScaling, flaggedCount);
-        }
-
-        // ── Phase 3: Compute global frequency ──
+        // ── Compute global frequency ──
         int256 averageDeltaF = totalDeltaF / int256(nodeCount);
         int256 globalFrequency = NOMINAL_FREQ - averageDeltaF;
 
-        // If trimmer active, adjust global frequency toward nominal
-        if (useTrimmer) {
-            globalFrequency = NOMINAL_FREQ - (averageDeltaF * trimmerScaling / 1000);
-        }
-
-        // ── Phase 4: Create immutability proof ──
+        // ── Create immutability proof ──
         bytes32 dataHash = keccak256(
             abi.encodePacked(
                 round,
@@ -367,9 +287,6 @@ contract FrequencyConsensus {
             controlSignal:    totalControlSignal,
             nodeCount:        nodeCount,
             leadNodeId:       leadNode[round],
-            fdiaDetections:   flaggedCount,
-            trimmerUsed:      useTrimmer,
-            trimmerScaling:   trimmerScaling,
             timestamp:        block.timestamp,
             dataHash:         dataHash
         });
@@ -385,14 +302,6 @@ contract FrequencyConsensus {
 
         // Advance to next round
         currentRound++;
-    }
-
-    // ════════════════════════════════════════════════════════════════
-    //  Internal Helpers
-    // ════════════════════════════════════════════════════════════════
-
-    function _abs(int256 x) internal pure returns (int256) {
-        return x >= 0 ? x : -x;
     }
 
     // ════════════════════════════════════════════════════════════════

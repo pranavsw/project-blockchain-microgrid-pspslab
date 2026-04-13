@@ -1,230 +1,372 @@
 /* ═══════════════════════════════════════════════════════════════════════
-   TransactionLifecycle.jsx — Pipeline Visualizer Component
-   Shows live state transitions for each node's blockchain submission:
-   1. Encoding Data → 2. Sending to Blockchain → 3. PBFT Verified
-   Includes Lead Node badge and FDIA warning indicators.
+   TransactionLifecycle.jsx — Live Blockchain Step-by-Step Visualizer
+   
+   Polls GET /api/state every 400ms to see what the simulation is doing.
+   The "Proceed" button sends POST /api/proceed which unblocks the simulation
+   and triggers the REAL next on-chain action on Hardhat.
+   
+   All data shown is REAL: actual Δf values computed by the simulation,
+   real tx hashes from Hardhat, real block hashes from the smart contract.
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import './TransactionLifecycle.css';
 
-const NODE_LABELS = {
-  1: { name: 'Solar Prosumer', icon: '☀️' },
-  2: { name: 'Wind Generator', icon: '🌬️' },
-  3: { name: 'Battery Storage', icon: '🔋' },
-  4: { name: 'Diesel Backup', icon: '⛽' },
+// ── Constants ─────────────────────────────────────────────────────────
+
+const NODE_META = {
+  1: { name: 'Solar Prosumer',  icon: '☀️',  color: 'node-1' },
+  2: { name: 'Wind Generator',  icon: '🌬️', color: 'node-2' },
+  3: { name: 'Battery Storage', icon: '🔋', color: 'node-3' },
+  4: { name: 'Diesel Backup',   icon: '⛽', color: 'node-4' },
 };
 
-const STAGES = [
-  { key: 'encoding', label: 'Encoding Data', icon: '🔐' },
-  { key: 'sending',  label: 'Sending to Chain', icon: '📡' },
-  { key: 'verified', label: 'PBFT Verified', icon: '✅' },
-];
+const PHASE_LABELS = {
+  starting:       { icon: '⚡', text: 'Simulation starting…',            detail: 'Connecting to Hardhat node and contract…' },
+  startRound:     { icon: '🔄', text: 'New round starting…',             detail: 'Initialising node submissions for this round.' },
+  measuring:      { icon: '📡', text: 'Measuring frequency deviation',   detail: 'Sampling local grid frequency via swing equation: Δf = ΔP / (2H·f₀)' },
+  packaging:      { icon: '📦', text: 'Packaging transaction',           detail: 'ABI-encoding payload: submitFrequency(nodeId, frequency, activePower)' },
+  broadcasting:   { icon: '📤', text: 'Ready to broadcast',              detail: 'Transaction signed. Press Proceed to send to Hardhat JSON-RPC (port 8545).' },
+  txSent:         { icon: '✈️', text: 'Transaction sent — confirming…',  detail: 'Waiting for Hardhat to mine the block and confirm the tx…' },
+  awaitingBlock:  { icon: '⏳', text: 'Awaiting blockchain consensus…',  detail: 'All 4 nodes submitted. Contract running PBFT lead election + consensus calculation.' },
+  blockVerified:  { icon: '🎯', text: 'Block sealed by consensus!',       detail: 'BlockVerified event received. Block is immutably written to the distributed ledger.' },
+  nextRound:      { icon: '🔁', text: 'Advancing to next round…',        detail: 'Resetting submission state. Next round beginning momentarily.' },
+  complete:       { icon: '🏁', text: 'Simulation complete!',             detail: 'All rounds processed successfully.' },
+  error:          { icon: '❌', text: 'Error occurred',                   detail: '' },
+};
 
-export default function TransactionLifecycle({ contract }) {
-  const [nodeStates, setNodeStates] = useState(() => {
-    const init = {};
-    [1, 2, 3, 4].forEach(id => {
-      init[id] = { stage: 'idle', deltaF: null, txHash: null, blockNumber: null, globalFreq: null, round: null, fdiaFlag: false };
-    });
-    return init;
-  });
-  const [currentRound, setCurrentRound] = useState(null);
-  const [leadNodeId, setLeadNodeId] = useState(null);
+const STAGE_FOR_PHASE = {
+  measuring:   0,
+  packaging:   1,
+  broadcasting: 2,
+  txSent:      2,
+};
 
-  // Poll current round
+const STAGE_LABELS = ['📡 Measure Δf', '📦 Package TX', '📤 Broadcast'];
+
+// Polling interval
+const POLL_MS = 400;
+
+// ════════════════════════════════════════════════════════════════════════
+//  Component
+// ════════════════════════════════════════════════════════════════════════
+
+export default function TransactionLifecycle({ onBlockFinalized }) {
+  const [simState, setSimState]       = useState(null);
+  const [apiOnline, setApiOnline]     = useState(false);
+  const [proceeding, setProceeding]   = useState(false);  // button spinner
+  const [prevRound, setPrevRound]     = useState(null);
+  const prevRoundRef = useRef(null);
+
+  // ── Poll /api/state ──────────────────────────────────────────────
   useEffect(() => {
-    if (!contract) return;
-
     let cancelled = false;
-    const fetchRound = async () => {
+
+    async function poll() {
       try {
-        const round = await contract.getCurrentRound();
-        if (!cancelled) setCurrentRound(Number(round));
-      } catch (e) {
-        // contract not available yet
-      }
-    };
-    fetchRound();
-    const interval = setInterval(fetchRound, 3000);
-    return () => { cancelled = true; clearInterval(interval); };
-  }, [contract]);
-
-  // Listen for contract events
-  useEffect(() => {
-    if (!contract) return;
-
-    // FrequencySubmitted(round, nodeId, frequency, activePower, deltaF, timestamp)
-    const onSubmitted = (round, nodeId, frequency, activePower, deltaF) => {
-      const nid = Number(nodeId);
-      const df = Number(deltaF) / 1000;
-      const rid = Number(round);
-
-      setNodeStates(prev => ({
-        ...prev,
-        [nid]: {
-          ...prev[nid],
-          round: rid,
-          stage: 'encoding',
-          deltaF: df,
-          fdiaFlag: false,
-          timestamp: Date.now(),
+        const res = await fetch('/api/state');
+        if (!res.ok) throw new Error('non-200');
+        const data = await res.json();
+        if (!cancelled) {
+          setSimState(data);
+          setApiOnline(true);
         }
-      }));
-
-      setTimeout(() => {
-        setNodeStates(prev => ({
-          ...prev,
-          [nid]: { ...prev[nid], stage: 'sending' }
-        }));
-      }, 800);
-    };
-
-    // FDIADetected(round, nodeId, deviation, threshold)
-    const onFDIA = (round, nodeId) => {
-      const nid = Number(nodeId);
-      setNodeStates(prev => ({
-        ...prev,
-        [nid]: { ...prev[nid], fdiaFlag: true }
-      }));
-    };
-
-    // LeadNodeElected(round, nodeId)
-    const onLeader = (round, nodeId) => {
-      setLeadNodeId(Number(nodeId));
-    };
-
-    // BlockVerified(round, globalFreq, controlSignal, leadNodeId, nodeIds, txHash)
-    const onVerified = (round, globalFreq, controlSignal, leader, nodeIds, txHash) => {
-      const rid = Number(round);
-      const gf = Number(globalFreq) / 1000;
-      setLeadNodeId(Number(leader));
-
-      for (let i = 0; i < nodeIds.length; i++) {
-        const id = Number(nodeIds[i]);
-        setNodeStates(prev => ({
-          ...prev,
-          [id]: {
-            ...prev[id],
-            round: rid,
-            stage: 'verified',
-            txHash: String(txHash),
-            blockNumber: rid,
-            globalFreq: gf,
-          }
-        }));
+      } catch {
+        if (!cancelled) setApiOnline(false);
       }
-    };
+    }
 
-    contract.on('FrequencySubmitted', onSubmitted);
-    contract.on('FDIADetected', onFDIA);
-    contract.on('LeadNodeElected', onLeader);
-    contract.on('BlockVerified', onVerified);
+    poll();
+    const id = setInterval(poll, POLL_MS);
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
 
-    return () => {
-      contract.off('FrequencySubmitted', onSubmitted);
-      contract.off('FDIADetected', onFDIA);
-      contract.off('LeadNodeElected', onLeader);
-      contract.off('BlockVerified', onVerified);
-    };
-  }, [contract]);
+  // ── Detect block finalization → notify parent for history table ──
+  useEffect(() => {
+    if (!simState) return;
+    if (simState.phase === 'blockVerified' && simState.block && simState.round !== prevRoundRef.current) {
+      prevRoundRef.current = simState.round;
+      // Build a block record from real on-chain data
+      const record = {
+        round:      simState.round,
+        leadNode:   simState.block.leadNode,
+        globalFreq: simState.block.globalFreq,
+        avgDeltaF:  computeAvgDeltaF(simState.nodeData),
+        nodes:      Object.entries(simState.nodeData).map(([id, d]) => ({
+          id: Number(id), deltaF: d.deltaF,
+        })),
+        hash:       simState.block.hash,
+        timestamp:  new Date().toLocaleTimeString(),
+      };
+      if (onBlockFinalized) onBlockFinalized(record);
+    }
+  }, [simState, onBlockFinalized]);
+
+  // ── Proceed button handler ───────────────────────────────────────
+  const handleProceed = useCallback(async () => {
+    if (proceeding) return;
+    setProceeding(true);
+    try {
+      await fetch('/api/proceed', { method: 'POST' });
+    } catch (e) {
+      console.warn('Proceed call failed:', e);
+    } finally {
+      // Small debounce so button doesn't immediately re-enable
+      setTimeout(() => setProceeding(false), 300);
+    }
+  }, [proceeding]);
+
+  // ── Derived display values ───────────────────────────────────────
+  if (!apiOnline) {
+    return (
+      <div className="lc-container">
+        <div className="lc-header">
+          <div className="lc-title-group">
+            <span className="lc-title-icon">🔗</span>
+            <div>
+              <h2 className="lc-title">Blockchain Step-by-Step Demo</h2>
+              <p className="lc-subtitle">Waiting for simulation server…</p>
+            </div>
+          </div>
+        </div>
+        <div className="lc-api-offline">
+          <span className="offline-icon">⚠️</span>
+          <div>
+            <strong>Simulation API offline</strong>
+            <p>Run <code>.\run_simulation.ps1</code> to start the simulation server</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const phase      = simState?.phase ?? 'starting';
+  const round      = simState?.round ?? 0;
+  const nodeId     = simState?.activeNodeId;
+  const nodeData   = simState?.nodeData ?? {};
+  const completed  = simState?.completedNodeIds ?? [];
+  const waiting    = simState?.waitingForProceed ?? false;
+  const block      = simState?.block ?? null;
+  const phaseInfo  = PHASE_LABELS[phase] ?? PHASE_LABELS['starting'];
+  const activeStageIndex = STAGE_FOR_PHASE[phase] ?? -1;
+
+  // Progress indicator (how many of 13 steps done this round)
+  // 3 steps per node × 4 nodes + 1 block step = 13
+  const nodeStepsCompleted = completed.length * 3 + (nodeId && activeStageIndex >= 0 ? activeStageIndex : 0);
+  const totalSteps = 13;
+  const blockStep  = phase === 'blockVerified' ? 1 : 0;
+  const progressPct = Math.min(100, Math.round(((nodeStepsCompleted + blockStep) / totalSteps) * 100));
+
+  // Button enabled only when simulation is paused
+  const btnEnabled = waiting && !proceeding;
+
+  // Button text
+  const btnText = phase === 'blockVerified'
+    ? `✅ Block ${round} sealed — Start Round ${round + 1} →`
+    : phase === 'broadcasting'
+    ? `⚡ Send Node ${nodeId} Transaction On-Chain →`
+    : `⚡ Proceed →`;
 
   return (
-    <div className="lifecycle-container">
-      <div className="lifecycle-header">
-        <h2 className="lifecycle-title">
-          <span className="lifecycle-icon">🔄</span>
-          Transaction Lifecycle
-        </h2>
-        <div className="round-badge">
-          Round <span className="round-number">{currentRound ?? '—'}</span>
+    <div className="lc-container">
+
+      {/* ── Header ───────────────────────────────────────────────── */}
+      <div className="lc-header">
+        <div className="lc-title-group">
+          <span className="lc-title-icon">🔗</span>
+          <div>
+            <h2 className="lc-title">Live Blockchain Demo</h2>
+            <p className="lc-subtitle">Each step triggers a real transaction on Hardhat</p>
+          </div>
+        </div>
+        <div className="lc-meta">
+          <div className="lc-round-badge">Round {round || '—'}</div>
+          <div className={`lc-api-dot ${apiOnline ? 'online' : 'offline'}`} title="Simulation API" />
         </div>
       </div>
 
-      <div className="pipeline-grid">
-        {[1, 2, 3, 4].map(nodeId => {
-          const state = nodeStates[nodeId];
-          const nodeInfo = NODE_LABELS[nodeId];
-          const stageIndex = STAGES.findIndex(s => s.key === state.stage);
+      {/* ── Progress Bar ─────────────────────────────────────────── */}
+      <div className="lc-progress-track">
+        <div className="lc-progress-fill" style={{ width: `${progressPct}%` }} />
+        <span className="lc-progress-label">{progressPct}%</span>
+      </div>
+
+      {/* ── Current Phase Description ─────────────────────────────── */}
+      <div className={`lc-current-step ${phase === 'blockVerified' ? 'lc-step-finalized' : ''}`}>
+        <span className="lc-step-icon">{phaseInfo.icon}</span>
+        <div className="lc-step-text">
+          <div className="lc-step-title">
+            {nodeId && ['measuring','packaging','broadcasting','txSent'].includes(phase)
+              ? `Node ${nodeId} (${NODE_META[nodeId]?.name}) — ${phaseInfo.text}`
+              : phaseInfo.text}
+          </div>
+          <div className="lc-step-detail">
+            {phase === 'error' ? simState?.error : phaseInfo.detail}
+          </div>
+        </div>
+        {!waiting && !['blockVerified','complete','error'].includes(phase) && (
+          <div className="lc-working-spinner">⟳</div>
+        )}
+      </div>
+
+      {/* ── Node Pipeline Cards ───────────────────────────────────── */}
+      <div className="lc-node-grid">
+        {[1, 2, 3, 4].map(nid => {
+          const meta        = NODE_META[nid];
+          const data        = nodeData[nid];
+          const isDone      = completed.includes(nid);
+          const isActive    = nodeId === nid && !isDone;
+          const isPending   = !isDone && !isActive;
+
+          // Which stages are complete for this node?
+          let stagesDone = [];
+          if (isDone) {
+            stagesDone = [0, 1, 2]; // all done
+          } else if (isActive) {
+            // stages before current phase are done
+            stagesDone = Array.from({ length: activeStageIndex }, (_, i) => i);
+          }
 
           return (
-            <div key={nodeId} className={`pipeline-card pipeline-node-${nodeId}`}>
-              <div className="pipeline-node-header">
-                <span className="node-icon">{nodeInfo.icon}</span>
-                <span className="node-label">Node {nodeId}</span>
-                <span className="node-name">{nodeInfo.name}</span>
-                {leadNodeId === nodeId && <span className="lead-badge">👑 Lead</span>}
-                {state.fdiaFlag && <span className="fdia-badge-small">🚨 FDIA</span>}
+            <div
+              key={nid}
+              className={`lc-node-card ${meta.color}
+                ${isActive ? 'lc-node-active' : ''}
+                ${isDone   ? 'lc-node-done'   : ''}
+                ${isPending ? 'lc-node-pending': ''}`}
+            >
+              <div className="lc-node-head">
+                <span className="lc-node-icon">{meta.icon}</span>
+                <div className="lc-node-info">
+                  <span className="lc-node-label">Node {nid}</span>
+                  <span className="lc-node-name">{meta.name}</span>
+                </div>
+                {isDone  && <span className="lc-done-check">✓</span>}
+                {isActive && <span className="lc-active-pulse" />}
               </div>
 
-              {state.deltaF !== null && (
-                <div className="delta-display">
-                  Δf = <span className={`delta-value ${state.deltaF >= 0 ? 'positive' : 'negative'}`}>
-                    {state.deltaF >= 0 ? '+' : ''}{state.deltaF.toFixed(4)} Hz
+              {/* Real Δf value — only shown once measuring starts */}
+              {data ? (
+                <div className="lc-delta">
+                  Δf = <span className={data.deltaF >= 0 ? 'df-pos' : 'df-neg'}>
+                    {data.deltaF >= 0 ? '+' : ''}{data.deltaF.toFixed(4)} Hz
                   </span>
+                  <span className="lc-freq-local"> (f = {data.frequency.toFixed(3)} Hz)</span>
                 </div>
+              ) : (
+                <div className="lc-delta lc-delta-pending">Δf = — waiting…</div>
               )}
 
-              <div className="stages-pipeline">
-                {STAGES.map((stage, idx) => {
-                  const isActive = stage.key === state.stage;
-                  const isDone = stageIndex > idx;
-                  const isVerified = stage.key === 'verified' && state.stage === 'verified';
-
+              {/* Stage indicators */}
+              <div className="lc-stages">
+                {STAGE_LABELS.map((label, idx) => {
+                  const done   = stagesDone.includes(idx);
+                  const active = isActive && idx === activeStageIndex;
                   return (
-                    <div key={stage.key} className="stage-wrapper">
-                      {idx > 0 && (
-                        <div className={`stage-connector ${isDone || isActive ? 'active' : ''}`}>
-                          <div className="connector-line" />
-                          <div className="connector-arrow">▸</div>
-                        </div>
-                      )}
-                      <div className={`stage-chip ${isActive ? 'active' : ''} ${isDone ? 'done' : ''} ${isVerified ? 'verified' : ''}`}>
-                        <span className="stage-icon">
-                          {isActive && stage.key === 'sending' ? (
-                            <span className="spinner">⟳</span>
-                          ) : (
-                            stage.icon
-                          )}
-                        </span>
-                        <span className="stage-label">{stage.label}</span>
-                        {isActive && stage.key === 'sending' && (
-                          <div className="sending-indicator">
-                            <div className="pulse-dot" />
-                          </div>
-                        )}
+                    <div key={idx} className="lc-stage-row">
+                      <div className={`lc-stage-dot ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+                        {done ? '✓' : active ? '◉' : '○'}
                       </div>
+                      <span className={`lc-stage-name ${done ? 'done' : ''} ${active ? 'active' : ''}`}>
+                        {label}
+                      </span>
                     </div>
                   );
                 })}
               </div>
 
-              {state.stage === 'verified' && state.txHash && (
-                <div className="verified-info animate-fade-in">
-                  <div className="verified-row">
-                    <span className="verified-label">TX Hash</span>
-                    <span className="verified-value mono">
-                      {state.txHash.length > 18
-                        ? `${state.txHash.substring(0, 10)}...${state.txHash.substring(state.txHash.length - 8)}`
-                        : state.txHash}
-                    </span>
-                  </div>
-                  <div className="verified-row">
-                    <span className="verified-label">Round</span>
-                    <span className="verified-value mono">#{state.round}</span>
-                  </div>
-                  {state.globalFreq !== null && (
-                    <div className="verified-row">
-                      <span className="verified-label">Global f</span>
-                      <span className="verified-value global-freq">{state.globalFreq.toFixed(3)} Hz</span>
-                    </div>
-                  )}
+              {/* Real tx hash once submitted */}
+              {data?.txHash && (
+                <div className="lc-txhash">
+                  <span className="lc-txhash-label">TX:</span>
+                  <span className="lc-txhash-value mono">
+                    {data.txHash.substring(0, 12)}…{data.txHash.slice(-6)}
+                  </span>
                 </div>
               )}
             </div>
           );
         })}
       </div>
+
+      {/* ── Block Finalization Panel ──────────────────────────────── */}
+      <div className={`lc-finalization ${phase === 'awaitingBlock' || phase === 'blockVerified' ? 'lc-final-active' : ''}`}>
+        <div className="lc-final-title">⛓️ Block Finalization (On-Chain)</div>
+
+        <div className="lc-final-stages">
+          {[
+            { key: 'elect',  icon: '👑', label: 'Lead Node Election',     active: phase === 'awaitingBlock' || phase === 'blockVerified' },
+            { key: 'pbft',   icon: '🗳️', label: 'PBFT Consensus',         active: phase === 'awaitingBlock' || phase === 'blockVerified' },
+            { key: 'seal',   icon: '🔐', label: 'Block Sealed',            active: phase === 'blockVerified' },
+            { key: 'append', icon: '✅', label: 'Written to Ledger',        active: phase === 'blockVerified' },
+          ].map(s => (
+            <div
+              key={s.key}
+              className={`lc-final-stage
+                ${phase === 'blockVerified' ? 'done' : ''}
+                ${phase === 'awaitingBlock' && (s.key === 'elect' || s.key === 'pbft') ? 'active' : ''}
+              `}
+            >
+              <span className="lc-final-stage-icon">{s.icon}</span>
+              <span className="lc-final-stage-label">{s.label}</span>
+              {phase === 'blockVerified' && <span className="lc-final-check">✓</span>}
+              {phase === 'awaitingBlock' && (s.key === 'elect' || s.key === 'pbft') && (
+                <span className="lc-final-spinner">⟳</span>
+              )}
+            </div>
+          ))}
+        </div>
+
+        {/* Real block data from the chain */}
+        {block && (
+          <div className="lc-final-info">
+            <span className="lc-info-item">👑 Lead: Node {block.leadNode} ({NODE_META[block.leadNode]?.name})</span>
+            <span className="lc-info-item">🌐 Global f = <strong>{block.globalFreq.toFixed(3)} Hz</strong></span>
+            <span className="lc-info-item mono">🔑 {block.hash.substring(0, 18)}…</span>
+          </div>
+        )}
+      </div>
+
+      {/* ════════════════════════════════════════════════════════════
+          PROCEED BUTTON — THE ONLY WAY TO ADVANCE THE SIMULATION
+          ════════════════════════════════════════════════════════════ */}
+      <div className="lc-proceed-wrapper">
+        <button
+          id="proceed-btn"
+          className={`lc-proceed-btn ${!btnEnabled ? 'lc-btn-disabled' : ''} ${phase === 'blockVerified' ? 'lc-btn-finalized' : ''}`}
+          onClick={handleProceed}
+          disabled={!btnEnabled}
+        >
+          <span className="lc-btn-icon">
+            {proceeding ? '⟳' : waiting ? '⚡' : '⏳'}
+          </span>
+          <span className="lc-btn-text">
+            {proceeding
+              ? 'Sending…'
+              : waiting
+              ? btnText
+              : phase === 'txSent'
+              ? 'Mining transaction…'
+              : phase === 'awaitingBlock'
+              ? 'Blockchain running consensus…'
+              : 'Simulation computing…'}
+          </span>
+        </button>
+        <div className="lc-step-hint">
+          {waiting
+            ? '▼ Press to execute the next step on-chain'
+            : '⟳ Working — button will activate when ready'}
+        </div>
+      </div>
+
     </div>
   );
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────
+
+function computeAvgDeltaF(nodeData) {
+  const values = Object.values(nodeData).map(d => d.deltaF).filter(v => v != null);
+  if (!values.length) return 0;
+  return values.reduce((a, b) => a + b, 0) / values.length;
 }

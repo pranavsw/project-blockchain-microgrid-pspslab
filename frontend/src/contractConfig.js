@@ -1,6 +1,7 @@
 /* ═══════════════════════════════════════════════════════════════════════
    contractConfig.js — Contract ABI and address
    Aligned with Dai et al. (2024) FrequencyConsensus contract
+   (FDIA/Attack detection removed — distributed control only)
    ═══════════════════════════════════════════════════════════════════════ */
 
 // Default Hardhat first-deploy address (deterministic)
@@ -15,14 +16,12 @@ export const FREQUENCY_CONSENSUS_ABI = [
   "function getNodeCount() view returns (uint256)",
   "function getLeadNode(uint256 _round) view returns (uint256)",
   "function getNeighbors(uint256 _nodeId) view returns (uint256[])",
-  "function getSubmission(uint256 _round, uint256 _nodeId) view returns (tuple(int256 frequency, int256 activePower, int256 deltaF, bool submitted, bool flaggedFDIA))",
-  "function getResult(uint256 _round) view returns (tuple(int256 globalFrequency, int256 totalDeltaF, int256 averageDeltaF, int256 controlSignal, uint256 nodeCount, uint256 leadNodeId, uint256 fdiaDetections, bool trimmerUsed, int256 trimmerScaling, uint256 timestamp, bytes32 dataHash))",
+  "function getSubmission(uint256 _round, uint256 _nodeId) view returns (tuple(int256 frequency, int256 activePower, int256 deltaF, bool submitted))",
+  "function getResult(uint256 _round) view returns (tuple(int256 globalFrequency, int256 totalDeltaF, int256 averageDeltaF, int256 controlSignal, uint256 nodeCount, uint256 leadNodeId, uint256 timestamp, bytes32 dataHash))",
 
   // ── Events ──
   "event FrequencySubmitted(uint256 indexed round, uint256 indexed nodeId, int256 frequency, int256 activePower, int256 deltaF, uint256 timestamp)",
   "event LeadNodeElected(uint256 indexed round, uint256 indexed nodeId)",
-  "event FDIADetected(uint256 indexed round, uint256 indexed nodeId, int256 deviation, int256 threshold)",
-  "event TrimmerActivated(uint256 indexed round, int256 scalingFactor, uint256 affectedNodes)",
   "event BlockVerified(uint256 indexed round, int256 globalFrequency, int256 controlSignal, uint256 leadNodeId, uint256[] nodeIds, bytes32 txHash)",
   "event NodeRegistered(uint256 indexed nodeId, uint256[] neighborIds)",
 ];

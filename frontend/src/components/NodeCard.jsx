@@ -30,10 +30,7 @@ export default function NodeCard({ nodeId, contract }) {
     };
 
     contract.on('FrequencySubmitted', onSubmitted);
-
-    return () => {
-      contract.off('FrequencySubmitted', onSubmitted);
-    };
+    return () => contract.off('FrequencySubmitted', onSubmitted);
   }, [contract, nodeId]);
 
   return (

@@ -161,6 +161,11 @@ body::before {
   50% { border-color: var(--accent-blue); box-shadow: 0 0 25px var(--accent-blue-glow); }
 }
 
+@keyframes slideInRow {
+  from { opacity: 0; transform: translateY(-10px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
 .animate-fade-in {
   animation: fadeInUp 0.5s ease-out forwards;
 }

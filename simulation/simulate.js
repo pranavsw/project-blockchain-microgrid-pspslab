@@ -1,308 +1,280 @@
-/*
- * ╔═══════════════════════════════════════════════════════════════════════╗
- * ║  Microgrid Frequency Simulation — Cyber-Physical Layer              ║
- * ║                                                                     ║
- * ║  Based on: Dai et al., "Blockchain-Enabled Cyber-Resilience         ║
- * ║  Enhancement Framework of Microgrid Distributed Secondary Control   ║
- * ║  Against False Data Injection Attacks"                              ║
- * ║  IEEE Trans. Smart Grid, Vol.15, No.2, March 2024                   ║
- * ║                                                                     ║
- * ║  Simulates 4 DG nodes with:                                         ║
- * ║    • Primary droop control: f_i = f* − k_pi × P_i + Δf_i           ║
- * ║    • 15-second delay (real ≈ 50μs) for delay-tolerant consensus     ║
- * ║    • Optional FDIA attack injection via --attack flag               ║
- * ╚═══════════════════════════════════════════════════════════════════════╝
- */
-
-const { ethers } = require("ethers");
-const { execSync } = require("child_process");
-
-// ════════════════════════════════════════════════════════════════════════
-//  Configuration
-// ════════════════════════════════════════════════════════════════════════
-
-const NOMINAL_FREQ         = 50.0;    // Hz
-const NOMINAL_FREQ_MILLI   = 50000;   // milli-Hz (for contract)
-const NODE_COUNT           = 4;
-const CONSENSUS_DELAY_SEC  = 5;       // Simulated mining delay (real: ~50μs)
-const TOTAL_ROUNDS         = 5;
-const RPC_URL              = "http://127.0.0.1:8545";
-
-// Hardhat account #0
-const PRIVATE_KEY = "0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80";
-
-// Updated ABI matching the new contract
-const CONTRACT_ABI = [
-  "function submitFrequency(uint256 _nodeId, int256 _frequency, int256 _activePower)",
-  "function getCurrentRound() view returns (uint256)",
-  "function getNodeCount() view returns (uint256)",
-  "function getLeadNode(uint256 _round) view returns (uint256)",
-  "function getResult(uint256 _round) view returns (tuple(int256 globalFrequency, int256 totalDeltaF, int256 averageDeltaF, int256 controlSignal, uint256 nodeCount, uint256 leadNodeId, uint256 fdiaDetections, bool trimmerUsed, int256 trimmerScaling, uint256 timestamp, bytes32 dataHash))",
-  "event BlockVerified(uint256 indexed round, int256 globalFrequency, int256 controlSignal, uint256 leadNodeId, uint256[] nodeIds, bytes32 txHash)",
-  "event FDIADetected(uint256 indexed round, uint256 indexed nodeId, int256 deviation, int256 threshold)",
-  "event TrimmerActivated(uint256 indexed round, int256 scalingFactor, uint256 affectedNodes)",
-  "event LeadNodeElected(uint256 indexed round, uint256 indexed nodeId)",
-];
-
-// ════════════════════════════════════════════════════════════════════════
-//  DG Node Definitions (aligned with paper)
-// ════════════════════════════════════════════════════════════════════════
-
-const nodes = [
-  { id: 1, name: "Solar Prosumer",  icon: "☀️",  basePower: 100, loadVariation: 15, inertia: 5.0, kp: 0.002 },
-  { id: 2, name: "Wind Generator",  icon: "🌬️",  basePower: 200, loadVariation: 25, inertia: 8.0, kp: 0.001 },
-  { id: 3, name: "Battery Storage", icon: "🔋", basePower: 150, loadVariation: 10, inertia: 6.0, kp: 0.001 },
-  { id: 4, name: "Diesel Backup",   icon: "⛽", basePower: 80,  loadVariation: 20, inertia: 4.0, kp: 0.002 },
-];
-
-// ════════════════════════════════════════════════════════════════════════
-//  CLI Argument Parsing
-// ════════════════════════════════════════════════════════════════════════
-
-function parseArgs() {
-  const args = process.argv.slice(2);
-  const config = {
-    contractAddress: null,
-    attackEnabled: false,
-    attackNode: 2,        // Default: attack Wind Generator
-    attackType: 1,        // 1 = Type I (payload only), 2 = Type II (payload + identity)
-    attackMagnitude: 500,  // milli-Hz: inject +0.5 Hz fake deviation
-  };
-
-  for (let i = 0; i < args.length; i++) {
-    if (args[i] === "--attack") {
-      config.attackEnabled = true;
-    } else if (args[i] === "--attack-node" && args[i + 1]) {
-      config.attackNode = parseInt(args[++i]);
-    } else if (args[i] === "--attack-type" && args[i + 1]) {
-      config.attackType = parseInt(args[++i]);
-    } else if (args[i] === "--attack-magnitude" && args[i + 1]) {
-      config.attackMagnitude = parseInt(args[++i]);
-    } else if (!args[i].startsWith("--")) {
-      config.contractAddress = args[i];
-    }
-  }
-
-  return config;
-}
-
-// ════════════════════════════════════════════════════════════════════════
-//  Physics Helpers
-// ════════════════════════════════════════════════════════════════════════
-
-/** Gaussian random via Box-Muller */
-function gaussianRandom(mean = 0, stdDev = 1) {
-  const u1 = Math.random();
-  const u2 = Math.random();
-  const z = Math.sqrt(-2.0 * Math.log(u1)) * Math.cos(2.0 * Math.PI * u2);
-  return mean + z * stdDev;
-}
-
 /**
- * Real data is now fetched using OpenDSS Direct via Python.
- * The generateNodeData function has been replaced by the OpenDSS Engine.
+ * simulate.js — Blockchain Microgrid Simulation + Step Control API
+ *
+ * This runs TWO things simultaneously:
+ *   1. An Express API server on port 3001 for the UI to read state & send "proceed" signals
+ *   2. The actual simulation loop that submits real transactions to Hardhat
+ *
+ * The simulation PAUSES at each phase and waits for POST /api/proceed before continuing.
+ * This means the Proceed button on the UI *literally* triggers the next on-chain action.
+ *
+ * Step sequence per round (13 user presses):
+ *   For each node 1→4:
+ *     [PAUSE] → user sees "Measuring Δf" → presses Proceed
+ *     [PAUSE] → user sees "Packaging Transaction" → presses Proceed
+ *     [PAUSE] → user sees "Broadcasting" → presses Proceed → REAL TX SENT to Hardhat
+ *   [AUTO]  → blockchain runs consensus after Node 4 submitted
+ *   [PAUSE] → user sees Block finalized → presses Proceed → next round begins
+ *
+ * Usage: node simulate.js <CONTRACT_ADDRESS>
  */
 
-function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
-function signed(v, d = 4) { return (v >= 0 ? "+" : "") + v.toFixed(d); }
-function sep() { console.log("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"); }
+const express = require('express');
+const cors    = require('cors');
+const { ethers } = require('ethers');
 
 // ════════════════════════════════════════════════════════════════════════
-//  Main Simulation
+//  Config
+// ════════════════════════════════════════════════════════════════════════
+
+const CONTRACT_ADDRESS = process.argv[2];
+if (!CONTRACT_ADDRESS) {
+  console.error('\n  ❌  Usage: node simulate.js <CONTRACT_ADDRESS>\n');
+  process.exit(1);
+}
+
+const RPC_URL      = 'http://127.0.0.1:8545';
+const API_PORT     = 3001;
+const TOTAL_ROUNDS = 999;   // Runs indefinitely — stop manually
+const NOMINAL_FREQ = 50.0;
+
+const ABI = [
+  'function submitFrequency(uint256 _nodeId, int256 _frequency, int256 _activePower)',
+  'function getCurrentRound() view returns (uint256)',
+  'event FrequencySubmitted(uint256 indexed round, uint256 indexed nodeId, int256 frequency, int256 activePower, int256 deltaF, uint256 timestamp)',
+  'event LeadNodeElected(uint256 indexed round, uint256 indexed nodeId)',
+  'event BlockVerified(uint256 indexed round, int256 globalFrequency, int256 controlSignal, uint256 leadNodeId, uint256[] nodeIds, bytes32 txHash)',
+];
+
+const NODE_DEFS = [
+  { id: 1, name: 'Solar Prosumer',  icon: '☀️',  baseLoad: 100, variation: 15, inertia: 5.0 },
+  { id: 2, name: 'Wind Generator',  icon: '🌬️', baseLoad: 200, variation: 25, inertia: 8.0 },
+  { id: 3, name: 'Battery Storage', icon: '🔋', baseLoad: 150, variation: 10, inertia: 6.0 },
+  { id: 4, name: 'Diesel Backup',   icon: '⛽', baseLoad:  80, variation: 20, inertia: 4.0 },
+];
+
+// ════════════════════════════════════════════════════════════════════════
+//  Simulation State (this is what the UI reads via GET /api/state)
+// ════════════════════════════════════════════════════════════════════════
+
+let state = {
+  phase: 'starting',          // starting | measuring | packaging | broadcasting | txSent | awaitingBlock | blockVerified | nextRound | complete
+  round: 0,
+  totalRounds: TOTAL_ROUNDS,
+  activeNodeId: null,         // which node is currently in the spotlight
+  waitingForProceed: false,   // true = button enabled, false = simulation working
+  proceedLabel: 'Proceed',    // what the button should say
+  nodeData: {},               // { [nodeId]: { deltaF, frequency, txHash, submitted } }
+  completedNodeIds: [],        // which node IDs have fully submitted this round
+  block: null,                // { globalFreq, leadNode, hash, controlSignal } — set after block verified
+  error: null,
+};
+
+function setState(updates) {
+  Object.assign(state, updates);
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Proceed mechanism — simulation blocks here until UI sends /api/proceed
+// ════════════════════════════════════════════════════════════════════════
+
+let _proceedResolver = null;
+
+function waitForProceed(label = '→ Proceed') {
+  setState({ waitingForProceed: true, proceedLabel: label });
+  return new Promise(resolve => { _proceedResolver = resolve; });
+}
+
+function triggerProceed() {
+  if (_proceedResolver) {
+    setState({ waitingForProceed: false });
+    const r = _proceedResolver;
+    _proceedResolver = null;
+    r();
+    return true;
+  }
+  return false;
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Express API
+// ════════════════════════════════════════════════════════════════════════
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+// GET /api/state — UI polls this to render its view
+app.get('/api/state', (_req, res) => res.json(state));
+
+// POST /api/proceed — UI calls this when user presses the button
+app.post('/api/proceed', (_req, res) => {
+  const ok = triggerProceed();
+  res.json({ ok, phase: state.phase });
+});
+
+app.listen(API_PORT, () => {
+  console.log(`  🌐 UI Control API → http://localhost:${API_PORT}/api/state`);
+});
+
+// ════════════════════════════════════════════════════════════════════════
+//  Helpers
+// ════════════════════════════════════════════════════════════════════════
+
+function generateDeltaF(node, round) {
+  const loadChange = node.variation * Math.sin(round * 0.1 * node.id);
+  const noise = (Math.random() - 0.5) * node.variation * 0.6;
+  const imbalance = loadChange + noise;
+  let df = imbalance / (2.0 * node.inertia * NOMINAL_FREQ);
+  return Math.max(-0.5, Math.min(0.5, df));
+}
+
+function waitForBlock(contract, round, timeoutMs = 60000) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      contract.off('BlockVerified', handler);
+      reject(new Error(`Timeout waiting for BlockVerified on round ${round}`));
+    }, timeoutMs);
+
+    function handler(evtRound, globalFreq, controlSignal, leadNodeId, nodeIds, txHash) {
+      if (Number(evtRound) === round) {
+        clearTimeout(timer);
+        contract.off('BlockVerified', handler);
+        resolve({
+          globalFreq:    Number(globalFreq)    / 1000,
+          controlSignal: Number(controlSignal) / 1000,
+          leadNode:      Number(leadNodeId),
+          hash:          txHash,
+        });
+      }
+    }
+    contract.on('BlockVerified', handler);
+  });
+}
+
+// ════════════════════════════════════════════════════════════════════════
+//  Main simulation loop
 // ════════════════════════════════════════════════════════════════════════
 
 async function main() {
-  const config = parseArgs();
+  console.log('\n╔═══════════════════════════════════════════════════╗');
+  console.log('║   MICROGRID BLOCKCHAIN SIMULATION + STEP API     ║');
+  console.log('╠═══════════════════════════════════════════════════╣');
+  console.log(`║  Contract: ${CONTRACT_ADDRESS.substring(0,10)}...${CONTRACT_ADDRESS.slice(-6)}          ║`);
+  console.log(`║  API:      http://localhost:${API_PORT}                   ║`);
+  console.log('╚═══════════════════════════════════════════════════╝\n');
 
-  if (!config.contractAddress) {
-    console.log("⚠  Usage: node simulate.js <CONTRACT_ADDRESS> [--attack] [--attack-node N] [--attack-type 1|2]");
-    console.log("");
-    console.log("   Options:");
-    console.log("     --attack              Enable FDIA injection");
-    console.log("     --attack-node N       Which node to compromise (default: 2)");
-    console.log("     --attack-type 1|2     Type I (payload) or Type II (payload+identity)");
-    console.log("     --attack-magnitude N  Fake deviation in milli-Hz (default: 500)");
-    console.log("");
-    console.log("   Example: node simulate.js 0x5FbDB...aa3 --attack --attack-node 2");
-    process.exit(1);
-  }
-
-  // ── Connect ──
   const provider = new ethers.JsonRpcProvider(RPC_URL);
-  const signer   = new ethers.Wallet(PRIVATE_KEY, provider);
-  const contract = new ethers.Contract(config.contractAddress, CONTRACT_ABI, signer);
+  const accounts = await provider.listAccounts();
+  const signer   = await provider.getSigner(accounts[0].address);
+  const contract = new ethers.Contract(CONTRACT_ADDRESS, ABI, signer);
 
-  try {
-    const nodeCount = await contract.getNodeCount();
-    const currentRound = await contract.getCurrentRound();
+  // Start from the current on-chain round
+  const startRound = Number(await contract.getCurrentRound());
+  console.log(`  ▶ Starting from round ${startRound}\n`);
 
-    console.log("");
-    console.log("╔═══════════════════════════════════════════════════════════╗");
-    console.log("║  BLOCKCHAIN-ENABLED MICROGRID FREQUENCY CONTROL          ║");
-    console.log("║  Dai et al., IEEE Trans. Smart Grid, 2024                ║");
-    console.log("╠═══════════════════════════════════════════════════════════╣");
-    console.log(`║  Nodes:     ${nodeCount} DG units (Solar, Wind, Battery, Diesel)   ║`);
-    console.log("║  Nominal:   50.000 Hz                                    ║");
-    console.log(`║  Delay:     ${CONSENSUS_DELAY_SEC}s (simulated mining + network)           ║`);
-    console.log("║  Consensus: PBFT (Lead Node rotation)                    ║");
-    console.log("║  Defense:   FDIA Bias Check + Self-Healing Trimmer       ║");
-    if (config.attackEnabled) {
-      console.log("╠═══════════════════════════════════════════════════════════╣");
-      console.log(`║  🚨 FDIA ATTACK ENABLED                                  ║`);
-      console.log(`║  Target:    Node ${config.attackNode} (${nodes.find(n => n.id === config.attackNode)?.name})                   ║`);
-      console.log(`║  Type:      ${config.attackType === 1 ? "I (payload modification)" : "II (payload + identity spoof)"}                  ║`);
-      console.log(`║  Magnitude: ${(config.attackMagnitude / 1000).toFixed(3)} Hz fake deviation                 ║`);
-    }
-    console.log("╚═══════════════════════════════════════════════════════════╝");
-  } catch (err) {
-    console.error("❌ Cannot connect to Hardhat node:", err.message);
-    process.exit(1);
-  }
+  for (let round = startRound; round <= startRound + TOTAL_ROUNDS; round++) {
 
-  // ── Simulation Loop ──
-  for (let round = 1; round <= TOTAL_ROUNDS; round++) {
-    console.log(""); sep();
-    console.log(`  ⚡ ROUND ${round} — Secondary Frequency Control`);
+    // ── Reset round state ──────────────────────────────────────────
+    setState({
+      phase: 'startRound',
+      round,
+      activeNodeId: null,
+      waitingForProceed: false,
+      nodeData: {},
+      completedNodeIds: [],
+      block: null,
+      error: null,
+    });
 
-    // Show lead node (PBFT rotation)
-    const expectedLeader = nodes[(round - 1) % NODE_COUNT];
-    console.log(`  👑 Lead Node: Node ${expectedLeader.id} (${expectedLeader.name})`);
-    sep();
+    console.log(`\n━━━━━  Round ${round}  ━━━━━`);
 
-    const timeStep = round;
+    // ── Per-node submission with 3 pauses each ─────────────────────
+    for (const node of NODE_DEFS) {
+      const deltaF    = generateDeltaF(node, round);
+      const frequency = NOMINAL_FREQ + deltaF;
 
-    // ── Phase 1: Generate measurements ──
-    console.log("\n  📊 DG Node Measurements (OpenDSS Power Flow + Droop Control)\n");
+      // Update nodeData entry for this node
+      setState({
+        activeNodeId: node.id,
+        nodeData: {
+          ...state.nodeData,
+          [node.id]: { deltaF, frequency, txHash: null, submitted: false },
+        },
+      });
 
-    let sumFreq = 0;
-    const measurements = [];
+      // ── PAUSE 1: Measuring ─────────────────────────────────────
+      setState({ phase: 'measuring' });
+      console.log(`  [Node ${node.id}] Measuring Δf = ${deltaF >= 0 ? '+' : ''}${deltaF.toFixed(4)} Hz — waiting for proceed…`);
+      await waitForProceed(`Proceed: Node ${node.id} measured → package`);
 
-    let openDssData = null;
-    try {
-      // Call the Python OpenDSS Engine to solve the real circuit
-      const output = execSync(`python opendss_engine.py --step ${timeStep}`, { encoding: "utf-8" });
-      openDssData = JSON.parse(output.trim());
-    } catch (e) {
-      console.error("\n❌ Failed to run OpenDSS Engine. Is Python and OpenDSSDirect.py installed?");
-      console.error("Try running: pip install OpenDSSDirect.py");
-      console.error(e.message);
-      process.exit(1);
-    }
+      // ── PAUSE 2: Packaging ────────────────────────────────────
+      setState({ phase: 'packaging' });
+      console.log(`  [Node ${node.id}] Packaging TX — waiting for proceed…`);
+      await waitForProceed(`Proceed: Node ${node.id} packaged → broadcast`);
 
-    for (const node of nodes) {
-      const nodeData = openDssData.nodes.find(n => n.nodeId === node.id);
-      let frequency = nodeData.frequency;
-      let activePower = nodeData.activePower;
-      let isAttacked = false;
+      // ── PAUSE 3: Broadcasting ─────────────────────────────────
+      setState({ phase: 'broadcasting' });
+      console.log(`  [Node ${node.id}] Broadcasting — waiting for proceed…`);
+      await waitForProceed(`Proceed: Send Node ${node.id} TX on-chain ⚡`);
 
-      // ── FDIA Injection ──
-      if (config.attackEnabled && node.id === config.attackNode) {
-        isAttacked = true;
-        const fakeDeviation = config.attackMagnitude / 1000;
-
-        if (config.attackType === 1) {
-          // Type I: Modify the frequency reading
-          frequency = NOMINAL_FREQ + fakeDeviation;
-        } else {
-          // Type II: Large deviation to exceed FDIA threshold
-          frequency = NOMINAL_FREQ + fakeDeviation * 2;
-        }
-      }
-
-      sumFreq += frequency;
-      measurements.push({ nodeId: node.id, frequency, activePower, name: node.name, icon: node.icon, isAttacked });
-
-      const deltaF = frequency - NOMINAL_FREQ;
-      const attackTag = isAttacked ? "  🚨 FDIA" : "";
-      console.log(`     Node ${node.id} ${node.icon}  │  f = ${frequency.toFixed(4)} Hz  │  P = ${activePower.toFixed(1)} kW  │  Δf = ${signed(deltaF)} Hz${attackTag}`);
-    }
-
-    const avgFreq = sumFreq / NODE_COUNT;
-    console.log("\n     ────────────────────────────────────────────");
-    console.log(`     Average f = ${avgFreq.toFixed(4)} Hz  │  Deviation = ${signed(avgFreq - NOMINAL_FREQ)} Hz`);
-
-    // ── Phase 2: Delay ──
-    console.log(`\n  ⏳ Block mining + network delay (${CONSENSUS_DELAY_SEC}s)...`);
-    for (let sec = CONSENSUS_DELAY_SEC; sec > 0; sec--) {
-      const filled = CONSENSUS_DELAY_SEC - sec;
-      process.stdout.write(`\r     ⏱  ${String(sec).padStart(2)}s remaining  ${"█".repeat(filled)}${"░".repeat(sec)}  `);
-      await sleep(1000);
-    }
-    console.log("\r     ✅ Delay complete — submitting to blockchain                              ");
-
-    // ── Phase 3: Submit transactions ──
-    console.log("\n  🔗 Submitting (frequency, power) to FrequencyConsensus...\n");
-
-    let allSuccess = true;
-    let nonce = await provider.getTransactionCount(signer.address, "latest");
-
-    for (const { nodeId, frequency, activePower, isAttacked } of measurements) {
-      const freqMilli = Math.round(frequency * 1000);    // to milli-Hz
-      const powerMilli = Math.round(activePower * 1000);  // to milli-kW
-
+      // ── ACTUAL TX ─────────────────────────────────────────────
+      setState({ phase: 'txSent' });
+      console.log(`  [Node ${node.id}] Sending transaction…`);
       try {
-        const tx = await contract.submitFrequency(nodeId, freqMilli, powerMilli, { nonce });
-        const receipt = await tx.wait();
+        const freqMilliHz  = BigInt(Math.round(frequency * 1000));
+        const powerMilliKW = BigInt(node.baseLoad * 1000);
+        const tx = await contract.submitFrequency(BigInt(node.id), freqMilliHz, powerMilliKW);
+        await tx.wait();
 
-        const attackTag = isAttacked ? " 🚨" : "";
-        console.log(`     Node ${nodeId}  │  ✅ tx: ${receipt.hash.substring(0, 18)}...  block: #${receipt.blockNumber}${attackTag}`);
-        nonce++;
+        console.log(`  [Node ${node.id}] ✅ tx: ${tx.hash.substring(0, 20)}…`);
+
+        // Update state with tx hash
+        setState({
+          nodeData: {
+            ...state.nodeData,
+            [node.id]: { deltaF, frequency, txHash: tx.hash, submitted: true },
+          },
+          completedNodeIds: [...state.completedNodeIds, node.id],
+          activeNodeId: node.id,
+        });
       } catch (err) {
-        const reason = err.reason || err.info?.error?.data?.message || err.message;
-        console.log(`     Node ${nodeId}  │  ❌ Error: ${reason}`);
-        allSuccess = false;
-        nonce = await provider.getTransactionCount(signer.address, "latest");
+        console.error(`  [Node ${node.id}] ❌ Error: ${err.message}`);
+        setState({ error: `Node ${node.id}: ${err.message}` });
       }
     }
 
-    // ── Phase 4: Read consensus result ──
-    if (allSuccess) {
-      try {
-        const newRound = await contract.getCurrentRound();
-        const result = await contract.getResult(Number(newRound) - 1);
-        const globalFreq = Number(result.globalFrequency) / 1000;
-        const controlSig = Number(result.controlSignal) / 1000;
-        const leader = Number(result.leadNodeId);
-        const fdiaCount = Number(result.fdiaDetections);
-        const trimmerUsed = result.trimmerUsed;
-        const trimmerScale = Number(result.trimmerScaling) / 1000;
+    // ── Wait for on-chain consensus (automatic after last tx) ──────
+    setState({ phase: 'awaitingBlock', activeNodeId: null });
+    console.log(`\n  ⏳ Waiting for BlockVerified event from Hardhat…`);
 
-        console.log(`\n  🎯 PBFT Consensus Reached!`);
-        console.log(`     👑 Lead Node:       #${leader} (${nodes.find(n => n.id === leader)?.name})`);
-        console.log(`     📡 Global Frequency: ${globalFreq.toFixed(3)} Hz`);
-        console.log(`     🔧 Control Signal:   ${signed(controlSig, 3)}`);
-        console.log(`     🔒 Data Hash:        ${result.dataHash.substring(0, 22)}...`);
-
-        if (fdiaCount > 0) {
-          console.log(`     🚨 FDIA Detected:    ${fdiaCount} node(s) flagged!`);
-          if (trimmerUsed) {
-            console.log(`     🛡️  Trimmer Active:   k_t = ${trimmerScale.toFixed(3)} (scaled down malicious signals)`);
-          }
-        }
-      } catch (e) {
-        console.log("\n  🎯 All nodes submitted — consensus triggered on-chain!");
-      }
-    } else {
-      console.log("\n  ⚠  Some submissions failed.");
+    let blockResult;
+    try {
+      blockResult = await waitForBlock(contract, round);
+    } catch (err) {
+      console.warn(`  ⚠ ${err.message}`);
+      setState({ error: err.message });
+      continue;
     }
 
-    sep();
+    console.log(`  🎯 Block ${round} verified! Lead: #${blockResult.leadNode}, Global f: ${blockResult.globalFreq.toFixed(3)} Hz`);
 
-    if (round < TOTAL_ROUNDS) {
-      console.log("\n  Waiting 5s before next round...\n");
-      await sleep(5000);
-    }
+    // ── PAUSE 4: Show block result, user acknowledges ──────────────
+    setState({
+      phase: 'blockVerified',
+      block: blockResult,
+    });
+    await waitForProceed(`✅ Block ${round} sealed — start Round ${round + 1}`);
+
+    setState({ phase: 'nextRound' });
   }
 
-  console.log("");
-  console.log("╔═══════════════════════════════════════════════════════════╗");
-  console.log("║              SIMULATION COMPLETE                         ║");
-  console.log(`║  ${TOTAL_ROUNDS} consensus rounds processed                         ║`);
-  if (config.attackEnabled) {
-    console.log("║  FDIA attack was injected and detected by the contract   ║");
-  }
-  console.log("╚═══════════════════════════════════════════════════════════╝");
-  console.log("");
+  setState({ phase: 'complete' });
+  console.log('\n  🏁 Simulation complete.\n');
+  process.exit(0);
 }
 
-main().catch(err => { console.error("Fatal:", err); process.exit(1); });
+main().catch(err => {
+  console.error('Fatal:', err);
+  setState({ phase: 'error', error: err.message });
+});

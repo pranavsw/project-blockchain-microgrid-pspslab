@@ -1,15 +1,16 @@
 /* ═══════════════════════════════════════════════════════════════════════
    App.jsx — Main Dashboard Application
-   Aligned with Dai et al. (2024) — PBFT, FDIA Detection, Trimmer
+   Distributed Microgrid Secondary Control — Blockchain Demo
+   (Attack/FDIA detection removed — distributed control only)
    ═══════════════════════════════════════════════════════════════════════ */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { ethers } from 'ethers';
 import { CONTRACT_ADDRESS, FREQUENCY_CONSENSUS_ABI } from './contractConfig';
 import TransactionLifecycle from './components/TransactionLifecycle';
 import FrequencyChart from './components/FrequencyChart';
 import NodeCard from './components/NodeCard';
-import AttackPanel from './components/AttackPanel';
+import BlockchainHistory from './components/BlockchainHistory';
 import './App.css';
 
 function App() {
@@ -17,16 +18,20 @@ function App() {
   const [contract, setContract] = useState(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState(null);
-  const [fdiaActive, setFdiaActive] = useState(false);
-  const [trimmerActive, setTrimmerActive] = useState(false);
   const [contractInfo, setContractInfo] = useState({
     address: CONTRACT_ADDRESS,
     round: '—',
     nodeCount: '—',
     nominal: '50.000 Hz',
     leadNode: '—',
-    fdiaDetections: 0,
   });
+
+  // Blockchain history — grows as blocks are finalized via the stepper
+  const [blocks, setBlocks] = useState([]);
+
+  const handleBlockFinalized = useCallback((blockRecord) => {
+    setBlocks(prev => [...prev, blockRecord]);
+  }, []);
 
   // Connect to local Hardhat node
   useEffect(() => {
@@ -44,8 +49,6 @@ function App() {
           try {
             const result = await ct.getResult(Number(currentRound) - 1);
             leadNodeId = String(result.leadNodeId);
-            setFdiaActive(Number(result.fdiaDetections) > 0);
-            setTrimmerActive(result.trimmerUsed);
           } catch (e) { /* first round */ }
         }
 
@@ -70,35 +73,20 @@ function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Listen for FDIA and Trimmer events
+  // Listen for BlockVerified to keep stats bar in sync
   useEffect(() => {
     if (!contract) return;
 
-    const onFDIA = (round, nodeId) => {
-      setFdiaActive(true);
-    };
-
-    const onTrimmer = (round, scalingFactor) => {
-      setTrimmerActive(true);
-    };
-
-    const onVerified = (round, globalFreq, controlSig, leadNodeId) => {
+    const onVerified = (round, globalFreq, controlSignal, leader) => {
       setContractInfo(prev => ({
         ...prev,
         round: String(Number(round) + 1),
-        leadNode: String(leadNodeId),
+        leadNode: String(leader),
       }));
     };
 
-    contract.on('FDIADetected', onFDIA);
-    contract.on('TrimmerActivated', onTrimmer);
     contract.on('BlockVerified', onVerified);
-
-    return () => {
-      contract.off('FDIADetected', onFDIA);
-      contract.off('TrimmerActivated', onTrimmer);
-      contract.off('BlockVerified', onVerified);
-    };
+    return () => contract.off('BlockVerified', onVerified);
   }, [contract]);
 
   return (
@@ -109,9 +97,9 @@ function App() {
           <div className="logo">
             <span className="logo-icon">⚡</span>
             <div className="logo-text">
-              <h1 className="app-title">Microgrid Frequency Control</h1>
+              <h1 className="app-title">Microgrid Blockchain Control</h1>
               <p className="app-subtitle">
-                Blockchain-Enabled Cyber-Resilience — Dai et al. (2024)
+                Distributed Secondary Frequency Control — Blockchain-Enabled (Dai et al., 2024)
               </p>
             </div>
           </div>
@@ -119,18 +107,8 @@ function App() {
         <div className="header-right">
           <div className={`connection-badge ${connected ? 'connected' : 'disconnected'}`}>
             <span className="conn-dot" />
-            {connected ? 'Connected' : 'Disconnected'}
+            {connected ? 'Hardhat Connected' : 'Disconnected'}
           </div>
-          {fdiaActive && (
-            <div className="connection-badge fdia-badge">
-              🚨 FDIA Detected
-            </div>
-          )}
-          {trimmerActive && (
-            <div className="connection-badge trimmer-badge">
-              🛡️ Trimmer Active
-            </div>
-          )}
         </div>
       </header>
 
@@ -158,7 +136,7 @@ function App() {
           </span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Round</span>
+          <span className="stat-label">Chain Round</span>
           <span className="stat-value accent">{contractInfo.round}</span>
         </div>
         <div className="stat-item">
@@ -174,17 +152,18 @@ function App() {
           <span className="stat-value">PBFT</span>
         </div>
         <div className="stat-item">
-          <span className="stat-label">Defense</span>
-          <span className="stat-value">SC² Trimmer</span>
+          <span className="stat-label">Demo Blocks</span>
+          <span className="stat-value accent">{blocks.length}</span>
         </div>
       </div>
 
       {/* ── Main Content ───────────────────────────────────────── */}
       <main className="main-content">
-        {/* Node Cards Row */}
+
+        {/* Node Status Cards */}
         <section className="section-nodes">
           <h2 className="section-title">
-            <span>🔌</span> DG Nodes (Ring Topology: 1↔2↔3↔4↔1)
+            <span>🔌</span> DG Nodes — Ring Topology (1↔2↔3↔4↔1)
           </h2>
           <div className="nodes-grid">
             {[1, 2, 3, 4].map(nodeId => (
@@ -193,14 +172,18 @@ function App() {
           </div>
         </section>
 
-        {/* Attack Panel */}
-        <section className="section-attack">
-          <AttackPanel contract={contract} provider={provider} />
+        {/* Step-by-Step Blockchain Stepper */}
+        <section className="section-lifecycle">
+          <TransactionLifecycle
+            contract={contract}
+            provider={provider}
+            onBlockFinalized={handleBlockFinalized}
+          />
         </section>
 
-        {/* Transaction Lifecycle */}
-        <section className="section-lifecycle">
-          <TransactionLifecycle contract={contract} provider={provider} />
+        {/* Blockchain History Table */}
+        <section className="section-history">
+          <BlockchainHistory blocks={blocks} />
         </section>
 
         {/* Frequency Chart */}
@@ -212,11 +195,11 @@ function App() {
       {/* ── Footer ─────────────────────────────────────────────── */}
       <footer className="app-footer">
         <p>
-          Blockchain-Enabled Cyber-Resilience Enhancement Framework —
+          Blockchain-Enabled Distributed Secondary Frequency Control —
           Dai et al., IEEE Trans. Smart Grid, Vol.15, No.2, 2024
         </p>
         <p className="footer-tech">
-          Solidity • Hardhat • PBFT • ethers.js • React • FDIA Detection • SC² Trimmer
+          Solidity • Hardhat • PBFT • ethers.js • React • Distributed Control
         </p>
       </footer>
     </div>

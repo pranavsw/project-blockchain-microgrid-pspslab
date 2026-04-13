@@ -1,281 +1,647 @@
-/* TransactionLifecycle.css — Pipeline visualizer styles */
+/* ═══════════════════════════════════════════════════════════════════════
+   TransactionLifecycle.css — Step-by-Step Blockchain Demo Styles
+   ═══════════════════════════════════════════════════════════════════════ */
 
-.lifecycle-container {
-  padding: 24px;
-  border-radius: var(--radius-lg);
-  background: var(--bg-glass);
-  backdrop-filter: blur(20px);
+/* ── Container ──────────────────────────────────────────────────────── */
+.lc-container {
+  background: var(--bg-card);
   border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xl);
+  padding: 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  position: relative;
+  overflow: hidden;
 }
 
-.lifecycle-header {
+.lc-container::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue), var(--accent-purple));
+}
+
+/* API offline banner */
+.lc-api-offline {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 20px 24px;
+  background: rgba(239, 68, 68, 0.08);
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  border-radius: var(--radius-md);
+}
+
+.offline-icon { font-size: 1.8rem; }
+
+.lc-api-offline strong {
+  display: block;
+  color: #f87171;
+  font-size: 0.95rem;
+  margin-bottom: 4px;
+}
+
+.lc-api-offline p {
+  font-size: 0.82rem;
+  color: var(--text-muted);
+}
+
+.lc-api-offline code {
+  font-family: var(--font-mono);
+  background: rgba(0,0,0,0.3);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+/* API status dot in header */
+.lc-api-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.lc-api-dot.online  { background: var(--accent-cyan); box-shadow: 0 0 8px var(--accent-cyan-glow); animation: pulse-glow 1.5s ease-in-out infinite; }
+.lc-api-dot.offline { background: var(--accent-red); }
+
+/* ── Header ─────────────────────────────────────────────────────────── */
+.lc-header {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 24px;
-}
-
-.lifecycle-title {
-  font-size: 1.25rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  color: var(--text-primary);
-}
-
-.lifecycle-icon {
-  font-size: 1.5rem;
-}
-
-.round-badge {
-  background: rgba(6, 214, 160, 0.1);
-  border: 1px solid var(--accent-cyan);
-  border-radius: 20px;
-  padding: 6px 16px;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: var(--accent-cyan);
-  font-family: var(--font-mono);
-}
-
-.round-number {
-  font-weight: 800;
-  font-size: 1rem;
-}
-
-.pipeline-grid {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
+  flex-wrap: wrap;
   gap: 16px;
 }
 
-@media (max-width: 768px) {
-  .pipeline-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
-.pipeline-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border-subtle);
-  border-radius: var(--radius-md);
-  padding: 20px;
-  transition: all 0.3s ease;
-  animation: fadeInUp 0.4s ease-out forwards;
-}
-
-.pipeline-node-1 { border-left: 3px solid var(--node-1); }
-.pipeline-node-2 { border-left: 3px solid var(--node-2); }
-.pipeline-node-3 { border-left: 3px solid var(--node-3); }
-.pipeline-node-4 { border-left: 3px solid var(--node-4); }
-
-.pipeline-card:hover {
-  background: var(--bg-card-hover);
-  transform: translateY(-2px);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.3);
-}
-
-.pipeline-node-header {
+.lc-title-group {
   display: flex;
   align-items: center;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 14px;
 }
 
-.node-icon {
-  font-size: 1.2rem;
+.lc-title-icon {
+  font-size: 2rem;
+  filter: drop-shadow(0 0 12px var(--accent-cyan-glow));
 }
 
-.node-label {
+.lc-title {
+  font-size: 1.3rem;
+  font-weight: 800;
+  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+  line-height: 1.2;
+}
+
+.lc-subtitle {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.lc-meta {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.lc-round-badge {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
   font-weight: 700;
-  font-size: 0.95rem;
+  font-family: var(--font-mono);
+  background: rgba(6, 214, 160, 0.1);
+  border: 1px solid var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.lc-step-badge {
+  padding: 6px 16px;
+  border-radius: 20px;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-family: var(--font-mono);
+  background: rgba(59, 130, 246, 0.1);
+  border: 1px solid var(--accent-blue);
+  color: var(--accent-blue);
+}
+
+/* ── Progress Bar ───────────────────────────────────────────────────── */
+.lc-progress-track {
+  position: relative;
+  height: 8px;
+  background: rgba(148, 163, 184, 0.1);
+  border-radius: 4px;
+  overflow: visible;
+  display: flex;
+  align-items: center;
+}
+
+.lc-progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-cyan), var(--accent-blue));
+  border-radius: 4px;
+  transition: width 0.4s ease;
+  box-shadow: 0 0 12px var(--accent-cyan-glow);
+}
+
+.lc-progress-label {
+  position: absolute;
+  right: 0;
+  top: -18px;
+  font-size: 0.7rem;
+  font-family: var(--font-mono);
+  color: var(--text-muted);
+}
+
+/* ── Current Step Description ───────────────────────────────────────── */
+.lc-current-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding: 18px 22px;
+  background: rgba(6, 214, 160, 0.06);
+  border: 1px solid rgba(6, 214, 160, 0.2);
+  border-radius: var(--radius-md);
+  animation: fadeInUp 0.35s ease-out;
+}
+
+.lc-step-icon {
+  font-size: 1.8rem;
+  flex-shrink: 0;
+  filter: drop-shadow(0 0 8px var(--accent-cyan-glow));
+}
+
+.lc-step-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lc-step-title {
+  font-size: 1rem;
+  font-weight: 700;
   color: var(--text-primary);
 }
 
-.node-name {
-  font-size: 0.8rem;
-  color: var(--text-muted);
-  margin-left: auto;
+.lc-step-detail {
+  font-size: 0.82rem;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  line-height: 1.5;
 }
 
-.delta-display {
+/* ── Node Grid ──────────────────────────────────────────────────────── */
+.lc-node-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+}
+
+@media (max-width: 900px) {
+  .lc-node-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (max-width: 500px) {
+  .lc-node-grid { grid-template-columns: 1fr; }
+}
+
+/* ── Node Card ──────────────────────────────────────────────────────── */
+.lc-node-card {
+  background: rgba(17, 24, 39, 0.8);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  transition: all 0.3s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.lc-node-card.node-1 { border-left: 3px solid var(--node-1); }
+.lc-node-card.node-2 { border-left: 3px solid var(--node-2); }
+.lc-node-card.node-3 { border-left: 3px solid var(--node-3); }
+.lc-node-card.node-4 { border-left: 3px solid var(--node-4); }
+
+.lc-node-card.node-1.lc-node-active {
+  background: rgba(6, 214, 160, 0.08);
+  border-color: var(--node-1);
+  box-shadow: 0 0 20px var(--node-1-glow), inset 0 0 20px rgba(6, 214, 160, 0.04);
+}
+.lc-node-card.node-2.lc-node-active {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: var(--node-2);
+  box-shadow: 0 0 20px var(--node-2-glow), inset 0 0 20px rgba(59, 130, 246, 0.04);
+}
+.lc-node-card.node-3.lc-node-active {
+  background: rgba(245, 158, 11, 0.08);
+  border-color: var(--node-3);
+  box-shadow: 0 0 20px var(--node-3-glow), inset 0 0 20px rgba(245, 158, 11, 0.04);
+}
+.lc-node-card.node-4.lc-node-active {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: var(--node-4);
+  box-shadow: 0 0 20px var(--node-4-glow), inset 0 0 20px rgba(139, 92, 246, 0.04);
+}
+
+/* Node head */
+.lc-node-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.lc-node-icon { font-size: 1.3rem; }
+
+.lc-node-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.lc-node-label {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.lc-node-name {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+
+/* Active pulse indicator */
+.lc-active-pulse {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent-cyan);
+  box-shadow: 0 0 10px var(--accent-cyan-glow);
+  animation: pulse-glow 1s ease-in-out infinite;
+  flex-shrink: 0;
+}
+
+.lc-node-card.node-2 .lc-active-pulse { background: var(--node-2); box-shadow: 0 0 10px var(--node-2-glow); }
+.lc-node-card.node-3 .lc-active-pulse { background: var(--node-3); box-shadow: 0 0 10px var(--node-3-glow); }
+.lc-node-card.node-4 .lc-active-pulse { background: var(--node-4); box-shadow: 0 0 10px var(--node-4-glow); }
+
+/* Delta display */
+.lc-delta {
   font-family: var(--font-mono);
-  font-size: 0.85rem;
+  font-size: 0.82rem;
   color: var(--text-secondary);
-  margin-bottom: 14px;
-  padding: 6px 10px;
   background: rgba(0, 0, 0, 0.3);
+  padding: 6px 10px;
   border-radius: var(--radius-sm);
 }
 
-.delta-value.positive { color: var(--accent-cyan); }
-.delta-value.negative { color: var(--accent-red); }
+.df-pos { color: #4ade80; font-weight: 600; }
+.df-neg { color: #f87171; font-weight: 600; }
 
-.stages-pipeline {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex-wrap: wrap;
-}
-
-.stage-wrapper {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-.stage-connector {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  opacity: 0.3;
-  transition: opacity 0.3s;
-}
-
-.stage-connector.active {
-  opacity: 1;
-}
-
-.connector-line {
-  width: 12px;
-  height: 2px;
-  background: var(--text-muted);
-  transition: background 0.3s;
-}
-
-.stage-connector.active .connector-line {
-  background: var(--accent-cyan);
-}
-
-.connector-arrow {
-  color: var(--text-muted);
-  font-size: 0.7rem;
-  transition: color 0.3s;
-}
-
-.stage-connector.active .connector-arrow {
-  color: var(--accent-cyan);
-}
-
-.stage-chip {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 12px;
-  border-radius: 20px;
-  font-size: 0.75rem;
-  font-weight: 500;
-  background: rgba(100, 116, 139, 0.1);
-  border: 1px solid transparent;
-  color: var(--text-muted);
-  transition: all 0.3s ease;
-  white-space: nowrap;
-}
-
-.stage-chip.active {
-  background: rgba(6, 214, 160, 0.1);
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  animation: borderGlow 2s ease-in-out infinite;
-}
-
-.stage-chip.done {
-  background: rgba(6, 214, 160, 0.05);
-  color: var(--accent-cyan);
-  opacity: 0.7;
-}
-
-.stage-chip.verified {
-  background: rgba(6, 214, 160, 0.15);
-  border-color: var(--accent-cyan);
-  color: var(--accent-cyan);
-  box-shadow: 0 0 15px var(--accent-cyan-glow);
-}
-
-.stage-icon {
-  font-size: 0.9rem;
-}
-
-.spinner {
-  display: inline-block;
-  animation: spin 1s linear infinite;
-}
-
-.sending-indicator {
-  position: relative;
-}
-
-.pulse-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--accent-cyan);
-  animation: pulse-glow 1s ease-in-out infinite;
-}
-
-.verified-info {
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--border-subtle);
+/* Stage rows */
+.lc-stages {
   display: flex;
   flex-direction: column;
   gap: 6px;
 }
 
-.verified-row {
+.lc-stage-row {
   display: flex;
-  justify-content: space-between;
   align-items: center;
-  font-size: 0.8rem;
+  gap: 8px;
 }
 
-.verified-label {
+.lc-stage-dot {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+  background: rgba(148, 163, 184, 0.08);
+  border: 1px solid rgba(148, 163, 184, 0.2);
   color: var(--text-muted);
-  font-weight: 500;
+  transition: all 0.3s ease;
 }
 
-.verified-value {
+.lc-stage-dot.done {
+  background: rgba(6, 214, 160, 0.15);
+  border-color: var(--accent-cyan);
+  color: var(--accent-cyan);
+}
+
+.lc-stage-dot.active {
+  background: rgba(245, 158, 11, 0.15);
+  border-color: var(--accent-amber);
+  color: var(--accent-amber);
+  animation: pulse-glow 1s ease-in-out infinite;
+}
+
+.lc-stage-name {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  transition: color 0.3s ease;
+}
+
+.lc-stage-name.done { color: var(--accent-cyan); }
+.lc-stage-name.active { color: var(--accent-amber); font-weight: 600; }
+
+/* ── Finalization Panel ──────────────────────────────────────────────── */
+.lc-finalization {
+  background: rgba(17, 24, 39, 0.6);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 20px 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  transition: all 0.4s ease;
+}
+
+.lc-finalization.lc-final-active {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.06);
+  box-shadow: 0 0 25px rgba(139, 92, 246, 0.15);
+}
+
+.lc-final-title {
+  font-size: 0.9rem;
+  font-weight: 700;
   color: var(--text-secondary);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
 }
 
-.verified-value.mono {
+.lc-final-stages {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.lc-final-stage {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: var(--radius-sm);
+  background: rgba(148, 163, 184, 0.05);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  transition: all 0.3s ease;
+  flex: 1;
+  min-width: 140px;
+}
+
+.lc-final-stage.done {
+  background: rgba(6, 214, 160, 0.08);
+  border-color: rgba(6, 214, 160, 0.25);
+  color: var(--accent-cyan);
+}
+
+.lc-final-stage.active {
+  background: rgba(139, 92, 246, 0.1);
+  border-color: rgba(139, 92, 246, 0.35);
+  color: #c4b5fd;
+  animation: borderGlow 2s ease-in-out infinite;
+}
+
+.lc-final-stage-icon { font-size: 1.1rem; }
+.lc-final-stage-label { flex: 1; font-weight: 500; }
+.lc-final-check { color: var(--accent-cyan); font-weight: 700; }
+.lc-final-spinner {
+  font-size: 1.1rem;
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+/* Finalization info row */
+.lc-final-info {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-subtle);
+}
+
+.lc-info-item {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.lc-info-item.mono {
   font-family: var(--font-mono);
-  font-size: 0.75rem;
 }
 
-.verified-value.global-freq {
+/* ════════════════════════════════════════════════════════════════════════
+   PROCEED BUTTON — Big, prominent, unmissable
+   ════════════════════════════════════════════════════════════════════════ */
+
+.lc-proceed-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 0 4px;
+}
+
+.lc-proceed-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  width: 100%;
+  max-width: 520px;
+  padding: 20px 40px;
+  border-radius: 16px;
+  border: 2px solid var(--accent-cyan);
+  background: linear-gradient(135deg,
+    rgba(6, 214, 160, 0.15) 0%,
+    rgba(59, 130, 246, 0.15) 100%
+  );
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  font-size: 1.15rem;
+  font-weight: 800;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  transition: all 0.25s ease;
+  box-shadow:
+    0 0 30px rgba(6, 214, 160, 0.2),
+    0 4px 24px rgba(0, 0, 0, 0.4);
+  position: relative;
+  overflow: hidden;
+}
+
+.lc-proceed-btn::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg,
+    rgba(6, 214, 160, 0.08),
+    rgba(59, 130, 246, 0.08)
+  );
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.lc-proceed-btn:hover {
+  border-color: var(--accent-blue);
+  box-shadow:
+    0 0 50px rgba(6, 214, 160, 0.35),
+    0 0 80px rgba(59, 130, 246, 0.2),
+    0 8px 32px rgba(0, 0, 0, 0.5);
+  transform: translateY(-2px) scale(1.01);
+  background: linear-gradient(135deg,
+    rgba(6, 214, 160, 0.22) 0%,
+    rgba(59, 130, 246, 0.22) 100%
+  );
+}
+
+.lc-proceed-btn:hover::before { opacity: 1; }
+
+.lc-proceed-btn:active {
+  transform: translateY(0) scale(0.99);
+  box-shadow: 0 0 20px rgba(6, 214, 160, 0.3), 0 2px 12px rgba(0, 0, 0, 0.4);
+}
+
+.lc-btn-flash {
+  animation: btn-flash 0.6s ease-out;
+}
+
+@keyframes btn-flash {
+  0% { background: rgba(6, 214, 160, 0.5); box-shadow: 0 0 60px rgba(6, 214, 160, 0.8); }
+  100% { background: linear-gradient(135deg, rgba(6, 214, 160, 0.15) 0%, rgba(59, 130, 246, 0.15) 100%); }
+}
+
+.lc-btn-icon {
+  font-size: 1.4rem;
+  filter: drop-shadow(0 0 8px var(--accent-cyan-glow));
+}
+
+.lc-btn-text {
+  position: relative;
+  z-index: 1;
+}
+
+.lc-step-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  text-align: center;
+  letter-spacing: 0.05em;
+}
+
+/* ── Disabled button (simulation is working, not paused) ─────────────── */
+.lc-proceed-btn.lc-btn-disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(148, 163, 184, 0.05);
+  box-shadow: none;
+  transform: none !important;
+}
+.lc-proceed-btn.lc-btn-disabled:hover {
+  transform: none;
+  box-shadow: none;
+  background: rgba(148, 163, 184, 0.05);
+  border-color: rgba(148, 163, 184, 0.2);
+}
+.lc-proceed-btn.lc-btn-disabled .lc-btn-icon {
+  animation: spin 1.2s linear infinite;
+  filter: none;
+}
+
+/* ── Finalized button (block sealed — purple accent) ─────────────────── */
+.lc-proceed-btn.lc-btn-finalized {
+  border-color: var(--accent-purple);
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18) 0%, rgba(59, 130, 246, 0.15) 100%);
+  box-shadow: 0 0 30px rgba(139, 92, 246, 0.25), 0 4px 24px rgba(0, 0, 0, 0.4);
+}
+.lc-proceed-btn.lc-btn-finalized:hover {
+  border-color: var(--accent-blue);
+  box-shadow: 0 0 50px rgba(139, 92, 246, 0.4), 0 0 80px rgba(59, 130, 246, 0.2), 0 8px 32px rgba(0,0,0,0.5);
+}
+
+/* ── Done/pending node card states ───────────────────────────────────── */
+.lc-node-card.lc-node-done {
+  opacity: 0.8;
+  border-left-width: 3px;
+}
+.lc-node-card.lc-node-done .lc-stage-dot   { background: rgba(6, 214, 160, 0.12); border-color: var(--accent-cyan); color: var(--accent-cyan); }
+.lc-node-card.lc-node-done .lc-stage-name  { color: var(--accent-cyan); }
+
+.lc-node-card.lc-node-pending { opacity: 0.5; }
+
+/* Done checkmark in node head */
+.lc-done-check {
+  font-size: 1rem;
   color: var(--accent-cyan);
   font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* ── Delta freq display extras ───────────────────────────────────────── */
+.lc-delta-pending { color: var(--text-muted); }
+
+.lc-freq-local {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  margin-left: 4px;
+}
+
+/* ── TX hash display at bottom of node card ──────────────────────────── */
+.lc-txhash {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.72rem;
+  padding: 5px 8px;
+  background: rgba(6, 214, 160, 0.06);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(6, 214, 160, 0.15);
+}
+
+.lc-txhash-label {
+  color: var(--text-muted);
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.lc-txhash-value {
+  color: var(--accent-cyan);
   font-family: var(--font-mono);
-}
-
-.stage-label {
   font-size: 0.7rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-/* Lead Node Badge */
-.lead-badge {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(250, 204, 21, 0.15);
-  color: #fbbf24;
-  border: 1px solid rgba(250, 204, 21, 0.3);
+/* ── Current step: finalized variant ────────────────────────────────── */
+.lc-step-finalized {
+  background: rgba(139, 92, 246, 0.08) !important;
+  border-color: rgba(139, 92, 246, 0.3) !important;
+}
+.lc-step-finalized .lc-step-icon {
+  filter: drop-shadow(0 0 8px rgba(139, 92, 246, 0.5));
+}
+
+/* ── Working spinner in current step ────────────────────────────────── */
+.lc-working-spinner {
+  font-size: 1.4rem;
+  color: var(--accent-amber);
+  animation: spin 1s linear infinite;
+  flex-shrink: 0;
   margin-left: auto;
-  white-space: nowrap;
-}
-
-/* FDIA Warning Badge */
-.fdia-badge-small {
-  font-size: 0.65rem;
-  font-weight: 700;
-  padding: 2px 8px;
-  border-radius: 10px;
-  background: rgba(239, 68, 68, 0.15);
-  color: #f87171;
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  animation: pulse-glow 1s ease-in-out infinite;
-  white-space: nowrap;
 }
