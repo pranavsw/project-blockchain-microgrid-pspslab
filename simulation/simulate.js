@@ -49,10 +49,10 @@ const CONTRACT_ABI = [
 // ════════════════════════════════════════════════════════════════════════
 
 const nodes = [
-  { id: 1, name: "Solar Prosumer",  icon: "☀️",  basePower: 100, loadVariation: 15, inertia: 5.0, kp: 0.050 },
-  { id: 2, name: "Wind Generator",  icon: "🌬️",  basePower: 200, loadVariation: 25, inertia: 8.0, kp: 0.030 },
-  { id: 3, name: "Battery Storage", icon: "🔋", basePower: 150, loadVariation: 10, inertia: 6.0, kp: 0.020 },
-  { id: 4, name: "Diesel Backup",   icon: "⛽", basePower: 80,  loadVariation: 20, inertia: 4.0, kp: 0.060 },
+  { id: 1, name: "Solar Prosumer",  icon: "☀️",  basePower: 100, loadVariation: 15, inertia: 5.0, kp: 0.002 },
+  { id: 2, name: "Wind Generator",  icon: "🌬️",  basePower: 200, loadVariation: 25, inertia: 8.0, kp: 0.001 },
+  { id: 3, name: "Battery Storage", icon: "🔋", basePower: 150, loadVariation: 10, inertia: 6.0, kp: 0.001 },
+  { id: 4, name: "Diesel Backup",   icon: "⛽", basePower: 80,  loadVariation: 20, inertia: 4.0, kp: 0.002 },
 ];
 
 // ════════════════════════════════════════════════════════════════════════

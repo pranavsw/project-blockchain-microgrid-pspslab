@@ -33,10 +33,10 @@ async function main() {
   console.log("\n📡 Registering 4 DG nodes with ring topology...\n");
 
   const nodes = [
-    { id: 1, name: "Solar Prosumer",  neighbors: [2, 4], kp: 50,  gi: 500 },
-    { id: 2, name: "Wind Generator",  neighbors: [1, 3], kp: 30,  gi: 300 },
-    { id: 3, name: "Battery Storage", neighbors: [2, 4], kp: 20,  gi: 400 },
-    { id: 4, name: "Diesel Backup",   neighbors: [3, 1], kp: 60,  gi: 500 },
+    { id: 1, name: "Solar Prosumer",  neighbors: [2, 4], kp: 2,  gi: 500 },
+    { id: 2, name: "Wind Generator",  neighbors: [1, 3], kp: 1,  gi: 300 },
+    { id: 3, name: "Battery Storage", neighbors: [2, 4], kp: 1,  gi: 400 },
+    { id: 4, name: "Diesel Backup",   neighbors: [3, 1], kp: 2,  gi: 500 },
   ];
 
   for (const node of nodes) {

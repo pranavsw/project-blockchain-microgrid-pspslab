@@ -54,10 +54,10 @@ def main():
     nominal_freq = 50.0
     
     dgs = [
-        {"id": 1, "name": "DG1", "kp": 0.050, "inertia": 5.0},
-        {"id": 2, "name": "DG2", "kp": 0.030, "inertia": 8.0},
-        {"id": 3, "name": "DG3", "kp": 0.020, "inertia": 6.0},
-        {"id": 4, "name": "DG4", "kp": 0.060, "inertia": 4.0},
+        {"id": 1, "name": "DG1", "kp": 0.002, "inertia": 5.0},
+        {"id": 2, "name": "DG2", "kp": 0.001, "inertia": 8.0},
+        {"id": 3, "name": "DG3", "kp": 0.001, "inertia": 6.0},
+        {"id": 4, "name": "DG4", "kp": 0.002, "inertia": 4.0},
     ]
 
     results = []
